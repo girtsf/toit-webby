@@ -1,0 +1,31 @@
+name: Build wasm release
+
+# Run manually after bumping WASM_TAG in versions.env.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load versions
+        run: cat versions.env | grep -v '^#' >> "$GITHUB_ENV"
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: ${{ env.EMSDK_VERSION }}
+      - name: Build
+        run: tools/build-wasm.sh
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$WASM_TAG" >/dev/null 2>&1; then
+            gh release upload "$WASM_TAG" build/toit-wasm.tar.gz --clobber
+          else
+            gh release create "$WASM_TAG" build/toit-wasm.tar.gz --latest=false \
+              --title "$WASM_TAG" --notes "Toit $TOIT_VERSION compiler + VM built for wasm."
+          fi

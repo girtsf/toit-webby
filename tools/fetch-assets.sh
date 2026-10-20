@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Populates the gitignored web/{assets,vendor,wasm} from pinned releases.
+# SKIP_WASM=1 leaves web/wasm alone (e.g. after a local tools/build-wasm.sh).
+# WASM_REPO=owner/name overrides where the wasm release is fetched from.
+set -euo pipefail
+
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+source "$ROOT/versions.env"
+WEB=$ROOT/web
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+
+dl() { curl -fsSL --retry 3 -o "$2" "$1"; }
+
+mkdir -p "$WEB/assets" "$WEB/vendor" "$WEB/wasm"
+
+echo "envelope $TOIT_VERSION ($CHIP)"
+dl "https://github.com/toitlang/envelopes/releases/download/$TOIT_VERSION/firmware-$CHIP.envelope.gz" \
+  "$WEB/assets/firmware-$CHIP.envelope.gz"
+
+echo "jaguar.snapshot $JAGUAR_VERSION"
+dl "https://github.com/toitlang/jaguar/releases/download/$JAGUAR_VERSION/assets.tar.gz" "$TMP/assets.tar.gz"
+tar xzf "$TMP/assets.tar.gz" -C "$TMP" assets/jaguar.snapshot
+cp "$TMP/assets/jaguar.snapshot" "$WEB/assets/"
+
+echo "esptool-js $ESPTOOL_JS_VERSION"
+dl "https://registry.npmjs.org/esptool-js/-/esptool-js-$ESPTOOL_JS_VERSION.tgz" "$TMP/esptool-js.tgz"
+tar xzf "$TMP/esptool-js.tgz" -C "$TMP" package/bundle.js
+cp "$TMP/package/bundle.js" "$WEB/vendor/esptool-js.js"
+
+if [[ "${SKIP_WASM:-}" == 1 ]]; then
+  echo "wasm: skipped"
+  exit 0
+fi
+if [[ -z "${WASM_REPO:-}" ]]; then
+  WASM_REPO=${GITHUB_REPOSITORY:-$(git -C "$ROOT" remote get-url origin | sed -E 's#(git@github.com:|https://github.com/)##; s#\.git$##')}
+fi
+echo "wasm $WASM_TAG from $WASM_REPO"
+dl "https://github.com/$WASM_REPO/releases/download/$WASM_TAG/toit-wasm.tar.gz" "$TMP/toit-wasm.tar.gz"
+tar xzf "$TMP/toit-wasm.tar.gz" -C "$WEB/wasm"

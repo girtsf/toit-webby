@@ -1,0 +1,284 @@
+diff --git a/src/event_sources/epoll_linux.cc b/src/event_sources/epoll_linux.cc
+index 813df65..d699ffe 100644
+--- a/src/event_sources/epoll_linux.cc
++++ b/src/event_sources/epoll_linux.cc
+@@ -15,7 +15,7 @@
+ 
+ #include "../top.h"
+ 
+-#ifdef TOIT_LINUX
++#if defined(TOIT_LINUX) && !defined(TOIT_WASM)
+ 
+ #include <sys/epoll.h>
+ #include <fcntl.h>
+diff --git a/src/event_sources/gpio_linux.cc b/src/event_sources/gpio_linux.cc
+index 2f45ebd..acf2353 100644
+--- a/src/event_sources/gpio_linux.cc
++++ b/src/event_sources/gpio_linux.cc
+@@ -15,7 +15,7 @@
+ 
+ #include "../top.h"
+ 
+-#ifdef TOIT_LINUX
++#if defined(TOIT_LINUX) && !defined(TOIT_WASM)
+ 
+ #include <gpiod.h>
+ 
+diff --git a/src/event_sources/spi_linux.cc b/src/event_sources/spi_linux.cc
+index 4a35d0d..74851a4 100644
+--- a/src/event_sources/spi_linux.cc
++++ b/src/event_sources/spi_linux.cc
+@@ -15,7 +15,7 @@
+ 
+ #include "../top.h"
+ 
+-#if defined(TOIT_LINUX)
++#if defined(TOIT_LINUX) && !defined(TOIT_WASM)
+ 
+ #include "spi_linux.h"
+ namespace toit {
+diff --git a/src/event_sources/subprocess.cc b/src/event_sources/subprocess.cc
+index 247b3cd..0c6f422 100644
+--- a/src/event_sources/subprocess.cc
++++ b/src/event_sources/subprocess.cc
+@@ -15,7 +15,7 @@
+ 
+ #include "../top.h"
+ 
+-#if defined(TOIT_LINUX) || defined(TOIT_DARWIN)
++#if (defined(TOIT_LINUX) || defined(TOIT_DARWIN)) && !defined(TOIT_WASM)
+ 
+ #include <errno.h>
+ #include <signal.h>
+diff --git a/src/flags.h b/src/flags.h
+index 74bfc6b..a3a4639 100644
+--- a/src/flags.h
++++ b/src/flags.h
+@@ -29,7 +29,7 @@ namespace toit {
+ #define _ASSERT_DEFAULT false
+ #endif
+ 
+-#ifdef TOIT_WINDOWS
++#if defined(TOIT_WINDOWS) || defined(TOIT_WASM)
+ #define _NO_FORK true
+ #else
+ #define _NO_FORK false
+diff --git a/src/interpreter_run.cc b/src/interpreter_run.cc
+index 2d3b7d0..d1af465 100644
+--- a/src/interpreter_run.cc
++++ b/src/interpreter_run.cc
+@@ -225,7 +225,7 @@ inline word mul(word a, word b) { return a * b; }
+ inline bool intrinsic_add(Object* a, Object* b, Smi** result) {
+   return Interpreter::are_smis(a, b) &&
+ #ifdef BUILD_32
+-    !__builtin_sadd_overflow((word) a, (word) b, (word*) result);
++    !__builtin_add_overflow((word) a, (word) b, (word*) result);
+ #elif BUILD_64
+     !LP64(__builtin_sadd,_overflow)((word) a, (word) b, (word*) result);
+ #endif
+@@ -235,7 +235,7 @@ inline bool intrinsic_add(Object* a, Object* b, Smi** result) {
+ inline bool intrinsic_sub(Object* a, Object* b, Smi** result) {
+   return Interpreter::are_smis(a, b) &&
+ #ifdef BUILD_32
+-    !__builtin_ssub_overflow((word) a, (word) b, (word*) result);
++    !__builtin_sub_overflow((word) a, (word) b, (word*) result);
+ #elif BUILD_64
+     !LP64(__builtin_ssub,_overflow)((word) a, (word) b, (word*) result);
+ #endif
+@@ -245,7 +245,7 @@ inline bool intrinsic_sub(Object* a, Object* b, Smi** result) {
+ inline bool intrinsic_mul(Object* a, Object* b, Smi** result) {
+   return Interpreter::are_smis(a, b) &&
+ #ifdef BUILD_32
+-    !__builtin_smul_overflow((word) a, ((word) b) >> 1, (word*) result);
++    !__builtin_mul_overflow((word) a, ((word) b) >> 1, (word*) result);
+ #elif BUILD_64
+     !LP64(__builtin_smul,_overflow)((word) a, ((word) b) >> 1, (word*) result);
+ #endif
+diff --git a/src/os_linux.cc b/src/os_linux.cc
+index 1d734ec..fd39e6c 100644
+--- a/src/os_linux.cc
++++ b/src/os_linux.cc
+@@ -34,6 +34,14 @@ namespace toit {
+ 
+ char* OS::get_executable_path() {
+   char* path = _new char[PATH_MAX];
++#ifdef TOIT_WASM
++  // There is no /proc in the browser. The SDK is mounted at a fixed location.
++  const char* exe = getenv("TOIT_EXECUTABLE");
++  if (exe == null) exe = "/sdk/lib/toit/bin/toit.compile";
++  strncpy(path, exe, PATH_MAX - 1);
++  path[PATH_MAX - 1] = '\0';
++  return path;
++#endif
+   int nb_written = readlink("/proc/self/exe", path, PATH_MAX - 1);
+   if (nb_written == -1) {
+     FATAL("failure reading executable path: %d", errno);
+diff --git a/src/os_posix.cc b/src/os_posix.cc
+index 05884d1..22f7347 100644
+--- a/src/os_posix.cc
++++ b/src/os_posix.cc
+@@ -273,6 +273,8 @@ const char* OS::get_architecture() {
+   return "x86";
+ #elif defined(__riscv) && __riscv_xlen == 64
+   return "riscv64";
++#elif defined(__EMSCRIPTEN__)
++  return "wasm32";
+ #else
+   #error "Unknown architecture"
+ #endif
+diff --git a/src/resources/gpio_linux.cc b/src/resources/gpio_linux.cc
+index 9c226c9..2b1e8e7 100644
+--- a/src/resources/gpio_linux.cc
++++ b/src/resources/gpio_linux.cc
+@@ -15,7 +15,7 @@
+ 
+ #include "../top.h"
+ 
+-#ifdef TOIT_LINUX
++#if defined(TOIT_LINUX) && !defined(TOIT_WASM)
+ 
+ #include <dirent.h>
+ #include <errno.h>
+diff --git a/src/resources/pipe_posix.cc b/src/resources/pipe_posix.cc
+index 4dcf257..367f12e 100644
+--- a/src/resources/pipe_posix.cc
++++ b/src/resources/pipe_posix.cc
+@@ -15,7 +15,7 @@
+ 
+ #include "../top.h"
+ 
+-#if defined(TOIT_LINUX) || defined(TOIT_BSD)
++#if (defined(TOIT_LINUX) || defined(TOIT_BSD)) && !defined(TOIT_WASM)
+ 
+ #include <errno.h>
+ #include <fcntl.h>
+diff --git a/src/resources/spi_linux.cc b/src/resources/spi_linux.cc
+index 54abf18..a66df46 100644
+--- a/src/resources/spi_linux.cc
++++ b/src/resources/spi_linux.cc
+@@ -15,7 +15,7 @@
+ 
+ #include "../top.h"
+ 
+-#ifdef TOIT_LINUX
++#if defined(TOIT_LINUX) && !defined(TOIT_WASM)
+ 
+ #include "../primitive.h"
+ #include "../objects_inline.h"
+diff --git a/src/resources/subprocess_posix.cc b/src/resources/subprocess_posix.cc
+index d286c1d..132cef1 100644
+--- a/src/resources/subprocess_posix.cc
++++ b/src/resources/subprocess_posix.cc
+@@ -15,7 +15,7 @@
+ 
+ #include "../top.h"
+ 
+-#if defined(TOIT_LINUX) || defined(TOIT_BSD)
++#if (defined(TOIT_LINUX) || defined(TOIT_BSD)) && !defined(TOIT_WASM)
+ 
+ #include <errno.h>
+ #include <fcntl.h>
+diff --git a/src/resources/tcp_linux.cc b/src/resources/tcp_linux.cc
+index 97936d5..183edfd 100644
+--- a/src/resources/tcp_linux.cc
++++ b/src/resources/tcp_linux.cc
+@@ -15,7 +15,7 @@
+ 
+ #include "../top.h"
+ 
+-#if defined(TOIT_LINUX) && !defined(TOIT_USE_LWIP)
++#if defined(TOIT_LINUX) && !defined(TOIT_USE_LWIP) && !defined(TOIT_WASM)
+ 
+ #include <errno.h>
+ #include <fcntl.h>
+diff --git a/src/resources/uart_posix.cc b/src/resources/uart_posix.cc
+index 69c0d77..69e72a1 100644
+--- a/src/resources/uart_posix.cc
++++ b/src/resources/uart_posix.cc
+@@ -15,7 +15,7 @@
+ 
+ #include "../top.h"
+ 
+-#ifdef TOIT_POSIX
++#if defined(TOIT_POSIX) && !defined(TOIT_WASM)
+ 
+ #include <fcntl.h>
+ #include <errno.h>
+diff --git a/src/resources/udp_linux.cc b/src/resources/udp_linux.cc
+index 5817120..a6aef92 100644
+--- a/src/resources/udp_linux.cc
++++ b/src/resources/udp_linux.cc
+@@ -15,7 +15,7 @@
+ 
+ #include "../top.h"
+ 
+-#if defined(TOIT_LINUX) && !defined(TOIT_USE_LWIP)
++#if defined(TOIT_LINUX) && !defined(TOIT_USE_LWIP) && !defined(TOIT_WASM)
+ 
+ #include <errno.h>
+ #include <fcntl.h>
+diff --git a/src/top.cc b/src/top.cc
+index c85b008..d417994 100644
+--- a/src/top.cc
++++ b/src/top.cc
+@@ -16,7 +16,7 @@
+ #include "top.h"
+ #include "flags.h"
+ #include <stdarg.h>
+-#ifdef TOIT_POSIX
++#if defined(TOIT_POSIX) && !defined(TOIT_WASM)
+ #include <execinfo.h>
+ #include <unistd.h>
+ #include <cxxabi.h>
+@@ -26,7 +26,7 @@
+ namespace toit {
+ 
+ void print_stacktrace() {
+-#ifdef TOIT_POSIX
++#if defined(TOIT_POSIX) && !defined(TOIT_WASM)
+   void* callstack[10];
+   int frames = backtrace(callstack, 10);
+   char** symbols = backtrace_symbols(callstack, frames);
+diff --git a/src/top.h b/src/top.h
+index 25d049f..bdb8920 100644
+--- a/src/top.h
++++ b/src/top.h
+@@ -90,6 +90,9 @@
+ #else
+ #define TOIT_LINUX
+ #define TOIT_POSIX
++#if defined(__EMSCRIPTEN__)
++#define TOIT_WASM
++#endif
+ #endif
+ 
+ #if defined(TOIT_DARWIN) + defined(TOIT_LINUX) + defined(TOIT_WINDOWS) + defined(TOIT_ESP32) + defined(TOIT_EC618) > 1
+@@ -100,7 +103,7 @@
+ 
+ #if (__WORDSIZE == 64) || __WIN64
+ #define BUILD_64 1
+-#elif (__WORDSIZE == 32) || ESP32 || __EC618 || __WIN32
++#elif (__WORDSIZE == 32) || ESP32 || __EC618 || __WIN32 || __EMSCRIPTEN__
+ #define BUILD_32 1
+ #else
+ #error "Expecting a 32 or 64 bit memory model"
+diff --git a/src/vm_linux.cc b/src/vm_linux.cc
+index 9dd8271..03c0688 100644
+--- a/src/vm_linux.cc
++++ b/src/vm_linux.cc
+@@ -38,6 +38,7 @@ void VM::load_platform_event_sources() {
+ #endif
+   // TODO(Lau): add new event source to other platforms.
+   event_manager()->add_event_source(_new TimerEventSource());
++#ifndef TOIT_WASM
+   event_manager()->add_event_source(_new EpollEventSource());
+   event_manager()->add_event_source(_new SubprocessEventSource());
+   event_manager()->add_event_source(_new TlsEventSource());
+@@ -45,6 +46,7 @@ void VM::load_platform_event_sources() {
+   event_manager()->add_event_source(_new SpiEventSource());
+   event_manager()->add_event_source(_new StdinEventSource());
+   event_manager()->add_event_source(_new TerminalResizeEventSource());
++#endif
+ }
+ 
+ } // namespace toit

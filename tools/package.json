@@ -1,0 +1,1 @@
+{"name":"toit-webby-tools","private":true,"type":"module","dependencies":{"esptool-js":"^0.5.4","puppeteer":"^25.15.0","serialport":"^12.0.0"}}

@@ -1,0 +1,23 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Toit Webby self-test</title>
+<style>body{font:14px ui-monospace,monospace;background:#0e1116;color:#e6edf3;padding:20px}
+.ok{color:#3fb950}.err{color:#f85149}</style></head>
+<body><h1>Toit Webby — in-browser toolchain self-test</h1><pre id="out"></pre>
+<script type="module">
+import * as toit from "./toit-runtime.js";
+const out = document.getElementById("out");
+const log = (m, c="") => { const d=document.createElement("div"); if(c)d.className=c; d.textContent=m; out.appendChild(d); };
+(async () => {
+  log("crossOriginIsolated = " + window.crossOriginIsolated);
+  try {
+    log("compiling hello…");
+    const t0 = performance.now();
+    const snap = await toit.compile('main:\n  print "hi from browser"\n');
+    log("  snapshot: " + snap.length + " bytes  (" + Math.round(performance.now()-t0) + " ms)", "ok");
+    log("snapshot-to-image…");
+    const img = await toit.snapshotToImage(snap);
+    log("  image: " + img.length + " bytes", "ok");
+    log("ALL GOOD — compiler + VM run in the browser.", "ok");
+  } catch (e) { log("FAILED: " + (e.stack||e.message), "err"); }
+})();
+</script></body></html>

@@ -1,0 +1,20 @@
+# Ideas to explore
+
+Backlog for Toit Webby. Each file is one idea: why, a sketch of the approach,
+open questions, and pointers into the code. Not committed work — a menu.
+
+Current state (for context): compile + firmware-build + run all work in-browser
+over Web Serial on a real ESP32-S3 (Chromium-family browsers). See `../../README.md`.
+
+| Idea | One-liner |
+|------|-----------|
+| [single-threaded-vm](single-threaded-vm.md) | Drop cross-origin isolation by building the VM without pthreads |
+| [firefox-safari-bridge](firefox-safari-bridge.md) | Local WebSocket agent so non-Chromium browsers work |
+| [lan-discovery](lan-discovery.md) | Find already-networked Toit devices (the hard browser limit) |
+| [network-run-transport](network-run-transport.md) | Push code over Wi-Fi/HTTP, not just USB |
+| [serial-reliability](serial-reliability.md) | Harden sync/stream/reset edge cases |
+| [container-management](container-management.md) | Install/list/uninstall persistent containers in the UI |
+| [faster-flash](faster-flash.md) | Make flashing quicker and less destructive |
+| [multi-chip-and-envelopes](multi-chip-and-envelopes.md) | Support more ESP32 variants; manage envelopes |
+| [editor-language-support](editor-language-support.md) | Real Toit language smarts (LSP, autocomplete, errors) |
+| [multi-file-projects](multi-file-projects.md) | More than a single source file; packages |

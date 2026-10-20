@@ -26,13 +26,19 @@
                color: var(--dim); margin: 22px 0 10px; }
   section:first-child h2 { margin-top: 0; }
   label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; }
-  input { width: 100%; padding: 7px 9px; background: var(--bg); border: 1px solid var(--border);
+  input, select { width: 100%; padding: 7px 9px; background: var(--bg); border: 1px solid var(--border);
           border-radius: 6px; color: var(--fg); font: inherit; }
   button { width: 100%; padding: 9px 12px; margin-top: 12px; border: 1px solid var(--border);
            border-radius: 6px; background: var(--panel); color: var(--fg); font: inherit;
            cursor: pointer; }
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
   button:disabled { opacity: .4; cursor: not-allowed; }
+  #devinfo { margin-top: 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px;
+             font-size: 12px; display: grid; gap: 2px; }
+  #devinfo[hidden] { display: none; }
+  #devinfo > div { display: grid; grid-template-columns: 64px 1fr; gap: 8px; }
+  #devinfo > div > span:first-child { color: var(--dim); }
+  #devinfo > div > span:last-child { overflow-wrap: anywhere; }
   .hint { font-size: 11px; color: var(--dim); margin-top: 8px; }
   #editor { overflow: auto; min-height: 0; border-bottom: 1px solid var(--border); }
   #editor .cm-editor { height: 100%; }
@@ -58,10 +64,13 @@
     <section>
       <h2>1 · Device</h2>
       <button id="connect" class="primary">Connect over USB</button>
-      <p class="hint">Plug in the ESP32, click, and pick its serial port.</p>
+      <p class="hint">Plug in the ESP32, click, and pick its serial port. The chip type is detected automatically.</p>
+      <div id="devinfo" hidden></div>
     </section>
     <section>
       <h2>2 · Flash Jaguar</h2>
+      <label for="envelope">Firmware envelope</label>
+      <select id="envelope"></select>
       <label for="devname">Device name</label>
       <input id="devname" value="webby-device" autocomplete="off">
       <label for="ssid">Wi-Fi SSID (optional)</label>

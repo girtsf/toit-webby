@@ -15,6 +15,6 @@ over Web Serial on a real ESP32-S3 (Chromium-family browsers). See `../../README
 | [serial-reliability](serial-reliability.md) | Harden sync/stream/reset edge cases |
 | [container-management](container-management.md) | Install/list/uninstall persistent containers in the UI |
 | [faster-flash](faster-flash.md) | Make flashing quicker and less destructive |
-| [multi-chip-and-envelopes](multi-chip-and-envelopes.md) | Support more ESP32 variants; manage envelopes |
+| [multi-chip-and-envelopes](multi-chip-and-envelopes.md) | Remaining bits of multi-chip support (envelope suggestions, version checks) |
 | [editor-language-support](editor-language-support.md) | Real Toit language smarts (LSP, autocomplete, errors) |
 | [multi-file-projects](multi-file-projects.md) | More than a single source file; packages |

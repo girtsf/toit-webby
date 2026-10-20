@@ -51,13 +51,15 @@ be added later (e.g. via a small local proxy).
 ## Run it
 
 ```
-tools/fetch-assets.sh      # envelope, jaguar.snapshot, esptool-js, prebuilt wasm
+tools/fetch-assets.sh      # envelopes, jaguar.snapshot, esptool-js, prebuilt wasm
+                           # (ENVELOPES='^esp32s3$' to fetch just one, ~11 MB each)
 cd web
 python3 serve.py 8000      # serves with COOP/COEP (needed for the VM's threads)
 # open http://localhost:8000  in Chrome/Edge/Opera
 ```
 
-1. **Connect over USB** — pick the ESP32's serial port.
+1. **Connect over USB** — pick the ESP32's serial port. The chip type is
+   detected (esptool) and the envelope dropdown lists the matching firmware.
 2. **Flash Jaguar** — enter a device name (+ optional Wi-Fi), click Flash. The
    firmware is built in your browser and written over USB (~once per device).
 3. **Compile & Run** — edit the Toit program and run it; output streams back.
@@ -67,7 +69,7 @@ Deploying to GitHub Pages: `.github/workflows/pages.yml` runs
 to "GitHub Actions"). `coi-serviceworker.js` adds the required COOP/COEP headers
 on static hosts.
 
-Binaries are not in git. Upstream ones (envelope, `jaguar.snapshot`,
+Binaries are not in git. Upstream ones (all ESP32 envelopes, `jaguar.snapshot`,
 esptool-js) are fetched from their releases at the versions pinned in
 `versions.env`; the wasm toolchain is a release asset of this repo (`WASM_TAG`),
 built by `.github/workflows/wasm-release.yml`.

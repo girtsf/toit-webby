@@ -1,33 +1,16 @@
 # Multi-chip support and envelope management
 
-## Why
-Today the app is hard-wired to **esp32s3** and one SDK version
-(`v2.0.0-alpha.199`), with the envelope vendored at
-`web/assets/firmware-esp32s3.envelope.gz`. Toit/Jaguar support many ESP32
-variants (esp32, esp32s2, esp32s3, esp32c3, esp32c6, esp32p4, …).
+## Done
+- Chip detected on connect (esptool-js, `detectChip` in `web/web-serial.js`);
+  chip, features, flash size and MAC shown in the UI.
+- All ESP32 envelopes of the pinned SDK are vendored by `tools/fetch-assets.sh`
+  (~30 x ~11 MB) and listed in `assets/envelopes.json`; the UI offers the ones
+  matching the detected chip, defaulting to the plain `<chip>` envelope.
 
-## Ideas
-1. **Detect the chip.** esptool-js already reports the chip during flash ("Chip
-   is ESP32-S3"). Detect first, then pick the matching envelope and word size.
-   (Word size: all current ESP32 variants are 32-bit → `-m32` for
-   `snapshot-to-image`; keep the knob though — `web/toit-runtime.js` already
-   parameterizes `wordSize`.)
-2. **Per-chip envelopes.** Vendor (or fetch same-origin) one envelope per chip:
-   `firmware-<chip>.envelope.gz`. They're ~11 MB each; don't ship all of them
-   unless needed. Could fetch on demand from a same-origin/CORS-friendly host.
-3. **SDK version coupling.** The envelope, the Jaguar snapshot
-   (`web/assets/jaguar.snapshot`), and the wasm toolchain
-   (`web/wasm/`) must all be the **same** Toit SDK version. Document/enforce this
-   — a mismatch means the device rejects the image (SDK version check) or odd
-   failures. Consider stamping the version into the app and surfacing it.
-4. **Envelope source.** GitHub release assets send no CORS/CORP headers, so they
-   can't be fetched cross-origin under COEP (that's why we vendored). Options:
-   vendor same-origin (current), or host envelopes somewhere that sends
-   `ACAO: *` + `Cross-Origin-Resource-Policy: cross-origin`, or proxy via the
-   local agent.
-
-## Pointers
-- Chip/envelope constants: top of `web/app.js` (`CHIP`, `SDK_VERSION`,
-  `ENVELOPE_LOCAL`).
-- Envelope URL pattern: `cmd/jag/commands/envelope.go#getFirmwareURL`
-  (`.../firmware-<model>.envelope.gz`).
+## Remaining
+- Only tested on ESP32-S3. esp32p4 has no envelope in this SDK version.
+- Suggest an envelope from features (embedded PSRAM -> `-spiram*`, flash size).
+- SDK version coupling: envelope, `jaguar.snapshot` and `web/wasm/` must match
+  (pinned together in `versions.env`); not surfaced/enforced in the app.
+- Envelope source: GitHub release assets send no CORS/CORP headers, hence
+  vendoring same-origin. Pages site limit is 1 GB.

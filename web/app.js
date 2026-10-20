@@ -1,21 +1,21 @@
 // Toit Webby — flash Jaguar onto an ESP32 over USB, then compile & run Toit
 // code on it, entirely in the browser. Serial-first (no network needed).
 import * as toit from "./toit-runtime.js";
-import { requestPort, flashImage, WebSerialTransport, isSupported } from "./web-serial.js";
+import { requestPort, detectChip, flashImage, WebSerialTransport, isSupported } from "./web-serial.js";
 import { JaguarUart } from "./jaguar-uart.js";
 import { createEditor } from "./editor.js";
 
 const SDK_VERSION = "v2.0.0-alpha.199";
-const CHIP = "esp32s3";
 // Prefer a same-origin copy: GitHub's release assets send no CORS/CORP headers,
 // so a cross-origin fetch is blocked under cross-origin isolation (COEP). Vendor
-// the envelope next to the app (assets/) and serve it from the same origin.
-const ENVELOPE_LOCAL = `./assets/firmware-${CHIP}.envelope.gz`;
-const ENVELOPE_URL = `https://github.com/toitlang/envelopes/releases/download/${SDK_VERSION}/firmware-${CHIP}.envelope.gz`;
+// the envelopes next to the app (assets/) and serve them from the same origin.
+// assets/envelopes.json lists the vendored envelope names (see fetch-assets.sh).
+const envelopeLocal = (name) => `./assets/firmware-${name}.envelope.gz`;
+const envelopeUrl = (name) => `https://github.com/toitlang/envelopes/releases/download/${SDK_VERSION}/firmware-${name}.envelope.gz`;
 const UART_BAUD = 921600;
 
 const $ = (id) => document.getElementById(id);
-const state = { port: null, transport: null, jag: null, deviceId: null, envelope: null };
+const state = { port: null, transport: null, jag: null, deviceId: null, chip: null, envelope: null };
 
 function log(msg, cls = "") {
   const el = $("console");
@@ -45,14 +45,71 @@ const editor = createEditor($("editor"), DEFAULT_CODE);
 
 // ---- Connect -------------------------------------------------------------
 $("connect").addEventListener("click", async () => {
+  let port;
   try {
-    state.port = await requestPort();
-    setStatus("port selected");
-    enable("flash", true);
+    port = await requestPort();
+  } catch (e) { log("Connect cancelled: " + e.message, "err"); return; }
+  await disconnectJag();
+  state.port = port;
+  state.chip = null;
+  showDevice(null);
+  enable("flash", false); enable("run", false); enable("connect", false);
+  try {
+    setStatus("detecting chip…");
+    log("Serial port selected. Detecting chip (resets the device)…");
+    state.chip = await detectChip(port, { onLog: (t) => { if (t && t.trim()) log(t.trim(), "dim"); } });
+    showDevice(state.chip);
+    log("Detected " + state.chip.description + ".", "ok");
+    await populateEnvelopes(state.chip.chip);
+    setStatus("connected: " + state.chip.name);
+  } catch (e) {
+    log("Chip detection failed: " + (e.stack || e.message), "err");
+    setStatus("detection failed");
+  } finally {
+    enable("connect", true);
     enable("run", true);
-    log("Serial port selected.", "ok");
-  } catch (e) { log("Connect cancelled: " + e.message, "err"); }
+    enable("flash", !!state.chip && $("envelope").options.length > 0);
+  }
 });
+
+function showDevice(chip) {
+  const el = $("devinfo");
+  el.hidden = !chip;
+  if (!chip) return;
+  const rows = [
+    ["Chip", chip.description],
+    ["Features", chip.features.map((f) => f.trim()).join(", ")],
+    ["Flash", chip.flashSize ? chip.flashSize + " MB" : "unknown"],
+    ["MAC", chip.mac],
+  ];
+  el.replaceChildren(...rows.map(([k, v]) => {
+    const row = document.createElement("div");
+    const kEl = document.createElement("span"); kEl.textContent = k;
+    const vEl = document.createElement("span"); vEl.textContent = v;
+    row.append(kEl, vEl);
+    return row;
+  }));
+}
+
+let envelopeNames = null;
+// Fill the envelope dropdown with the envelopes built for `chip` ("esp32s3"
+// matches "esp32s3" and "esp32s3-*", but not "esp32s3x").
+async function populateEnvelopes(chip) {
+  if (!envelopeNames) {
+    const resp = await fetch("./assets/envelopes.json");
+    if (!resp.ok) throw new Error("envelopes.json: HTTP " + resp.status);
+    envelopeNames = await resp.json();
+  }
+  const names = envelopeNames.filter((n) => n === chip || n.startsWith(chip + "-"));
+  const sel = $("envelope");
+  sel.replaceChildren(...names.map((n) => {
+    const o = document.createElement("option");
+    o.value = n; o.textContent = n;
+    return o;
+  }));
+  if (names.includes(chip)) sel.value = chip;
+  if (!names.length) log("No Toit envelopes available for " + chip + ".", "err");
+}
 
 // ---- Flash Jaguar --------------------------------------------------------
 $("flash").addEventListener("click", async () => {
@@ -63,14 +120,16 @@ $("flash").addEventListener("click", async () => {
   try {
     enable("flash", false); enable("run", false); enable("connect", false);
     setStatus("flashing…");
-    log("Fetching firmware envelope (~27 MB)…");
-    const envelope = await getEnvelope();
+    await disconnectJag();
+    const envName = $("envelope").value;
+    log("Fetching firmware envelope '" + envName + "' (~11 MB)…");
+    const envelope = await getEnvelope(envName);
     log("Loading Jaguar runtime…");
     const jaguarSnapshot = new Uint8Array(await (await fetch("./assets/jaguar.snapshot")).arrayBuffer());
     state.deviceId = crypto.randomUUID();
     log("Building firmware image in-browser (name='" + name + "', id=" + state.deviceId + ")…");
     const flashBin = await toit.buildFlashImage(envelope, {
-      name, id: state.deviceId, chip: CHIP, wifiSsid: ssid, wifiPassword: pass,
+      name, id: state.deviceId, chip: state.chip.chip, wifiSsid: ssid, wifiPassword: pass,
       uartBaud: UART_BAUD, jaguarSnapshot,
     });
     log("Flash image built: " + flashBin.length + " bytes. Writing over USB…");
@@ -84,7 +143,7 @@ $("flash").addEventListener("click", async () => {
     log("Flash failed: " + (e.stack || e.message), "err");
     setStatus("flash failed");
   } finally {
-    enable("flash", true); enable("run", true); enable("connect", true);
+    enable("flash", !!state.chip); enable("run", true); enable("connect", true);
   }
 });
 
@@ -108,7 +167,7 @@ $("run").addEventListener("click", async () => {
     log("Run failed: " + (e.stack || e.message), "err");
     setStatus("run failed");
   } finally {
-    enable("run", true); enable("flash", true);
+    enable("run", true); enable("flash", !!state.chip);
   }
 });
 
@@ -133,6 +192,14 @@ async function ensureConnected() {
   } catch (_) {}
 }
 
+// Release the port so esptool can take it (detect/flash).
+async function disconnectJag() {
+  if (!state.transport) return;
+  await state.transport.close();
+  state.transport = null;
+  state.jag = null;
+}
+
 let consoleLineBuf = "";
 function appendConsole(txt) {
   consoleLineBuf += txt;
@@ -145,27 +212,28 @@ function appendConsole(txt) {
 async function gunzip(stream) {
   return new Uint8Array(await new Response(stream.pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
 }
-async function getEnvelope() {
-  if (state.envelope) return state.envelope;
+async function getEnvelope(name) {
+  if (state.envelope?.name === name) return state.envelope.data;
   // 1) same-origin vendored copy (works under COEP); 2) GitHub (often CORS-blocked).
-  for (const url of [ENVELOPE_LOCAL, ENVELOPE_URL]) {
+  for (const [where, url] of [["app server", envelopeLocal(name)], ["GitHub", envelopeUrl(name)]]) {
     try {
       const resp = await fetch(url);
       if (!resp.ok) throw new Error("HTTP " + resp.status);
-      state.envelope = await gunzip(resp.body);
-      return state.envelope;
+      state.envelope = { name, data: await gunzip(resp.body) };
+      return state.envelope.data;
     } catch (e) {
-      log("Envelope fetch from " + (url === ENVELOPE_LOCAL ? "app server" : "GitHub") + " failed (" + e.message + ").", "dim");
+      log("Envelope fetch from " + where + " failed (" + e.message + ").", "dim");
     }
   }
   // 3) manual file picker
   log("Pick the firmware .envelope.gz file manually.", "err");
   const file = await pickFile(".gz,.envelope");
   const raw = new Uint8Array(await file.arrayBuffer());
-  state.envelope = file.name.endsWith(".gz")
+  const data = file.name.endsWith(".gz")
     ? await gunzip(new Blob([raw]).stream())
     : raw;
-  return state.envelope;
+  state.envelope = { name, data };
+  return data;
 }
 
 function pickFile(accept) {

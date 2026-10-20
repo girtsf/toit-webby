@@ -2,6 +2,8 @@
 # Populates the gitignored web/{assets,vendor,wasm} from pinned releases.
 # SKIP_WASM=1 leaves web/wasm alone (e.g. after a local tools/build-wasm.sh).
 # WASM_REPO=owner/name overrides where the wasm release is fetched from.
+# ENVELOPES=<regex> limits which envelopes are fetched (default: all ESP32 ones),
+# e.g. ENVELOPES='^esp32s3$' for local development.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -14,9 +16,20 @@ dl() { curl -fsSL --retry 3 -o "$2" "$1"; }
 
 mkdir -p "$WEB/assets" "$WEB/vendor" "$WEB/wasm"
 
-echo "envelope $TOIT_VERSION ($CHIP)"
-dl "https://github.com/toitlang/envelopes/releases/download/$TOIT_VERSION/firmware-$CHIP.envelope.gz" \
-  "$WEB/assets/firmware-$CHIP.envelope.gz"
+ENVELOPES=${ENVELOPES:-^esp32}
+AUTH=()
+[[ -n "${GITHUB_TOKEN:-}" ]] && AUTH=(-H "Authorization: Bearer $GITHUB_TOKEN")
+mapfile -t names < <(curl -fsSL --retry 3 "${AUTH[@]}" \
+    "https://api.github.com/repos/toitlang/envelopes/releases/tags/$TOIT_VERSION" \
+  | jq -r '.assets[].name | capture("^firmware-(?<n>.+)\\.envelope\\.gz$").n' \
+  | grep -E -- "$ENVELOPES" | grep -v -- '-qemu$' | sort)
+[[ ${#names[@]} -gt 0 ]] || { echo "no envelopes match '$ENVELOPES'" >&2; exit 1; }
+for n in "${names[@]}"; do
+  echo "envelope $TOIT_VERSION $n"
+  dl "https://github.com/toitlang/envelopes/releases/download/$TOIT_VERSION/firmware-$n.envelope.gz" \
+    "$WEB/assets/firmware-$n.envelope.gz"
+done
+printf '%s\n' "${names[@]}" | jq -R . | jq -s . > "$WEB/assets/envelopes.json"
 
 echo "jaguar.snapshot $JAGUAR_VERSION"
 dl "https://github.com/toitlang/jaguar/releases/download/$JAGUAR_VERSION/assets.tar.gz" "$TMP/assets.tar.gz"

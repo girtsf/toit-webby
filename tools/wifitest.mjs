@@ -2,6 +2,8 @@
 // connect via #device=, run the default example, install + list + uninstall,
 // then crash a program and check the decoded stack trace.
 // Usage: node wifitest.mjs [app-url] [device-host]
+// DEVICE_PAGE=1 opens the device's own page (http://<device-host>/), which runs
+// the app from app-url (device/webby.toit) instead.
 // For a host-run Jaguar* (no hardware), see device/host_run.toit.
 import puppeteer from "puppeteer";
 
@@ -12,10 +14,19 @@ const DEVICE = process.argv[3] || "webby-host.local:9123";
 // local HTTPS server look like a public site (as on GitHub Pages) for Local
 // Network Access.
 const extraArgs = (process.env.CHROME_ARGS || "").split(" ").filter(Boolean);
-const browser = await puppeteer.launch({ headless: "new", args: ["--no-sandbox", "--ignore-certificate-errors", ...extraArgs] });
+// BROWSER=firefox uses puppeteer's Firefox (WebDriver BiDi); FIREFOX_PATH picks
+// the binary, FIREFOX_PREFS='{"pref": value}' adds prefs.
+const firefox = process.env.BROWSER === "firefox";
+const browser = firefox
+  ? await puppeteer.launch({
+      browser: "firefox", headless: true, executablePath: process.env.FIREFOX_PATH,
+      acceptInsecureCerts: true, extraPrefsFirefox: JSON.parse(process.env.FIREFOX_PREFS || "{}"),
+    })
+  : await puppeteer.launch({ headless: "new", args: ["--no-sandbox", "--ignore-certificate-errors", ...extraArgs] });
+console.log("browser:", await browser.version());
 try {
   // Headless can't show the permission prompt; grant it up front unless told not to.
-  if (!process.env.NO_GRANT) {
+  if (!process.env.NO_GRANT && !firefox) {
     // Chrome 155 checks "local-network"; older builds used "local-network-access".
     const cdp = await browser.target().createCDPSession();
     for (const name of ["local-network", "local-network-access"]) {
@@ -24,11 +35,19 @@ try {
       }).catch((e) => console.log("permission grant:", e.message));
     }
   }
+  if (!process.env.NO_GRANT && firefox) {
+    for (const name of ["local-network", "loopback-network", "local-network-access"]) {
+      await browser.defaultBrowserContext().setPermission(new URL(APP).origin, {
+        permission: { name }, state: "granted",
+      }).catch((e) => console.log("permission grant:", name, e.message));
+    }
+  }
   const page = await browser.newPage();
   page.on("pageerror", (e) => console.log("pageerror:", e.message));
   page.on("console", (m) => { if (m.type() === "error") console.log("console.error:", m.text()); });
 
-  const consoleText = () => page.$eval("#console", (el) => el.innerText);
+  // The device page has no #console until it has loaded the app.
+  const consoleText = () => page.$eval("#console", (el) => el.innerText).catch(() => "");
   async function waitConsole(re, ms = 60000) {
     const end = Date.now() + ms;
     while (Date.now() < end) {
@@ -39,7 +58,8 @@ try {
     throw new Error("timeout waiting for " + re + "\n--- console ---\n" + await consoleText());
   }
 
-  await page.goto(APP + "#device=" + encodeURIComponent(DEVICE), { waitUntil: "networkidle2" });
+  await page.goto(process.env.DEVICE_PAGE ? `http://${DEVICE}/`
+    : APP + "#device=" + encodeURIComponent(DEVICE), { waitUntil: "networkidle2" });
   await waitConsole(/Connected over Wi-Fi/);
   console.log("connected; target =", await page.$eval("#target", (s) => s.value));
   // Drop the replayed history so the waits below only see new output.

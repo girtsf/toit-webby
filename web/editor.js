@@ -1,8 +1,6 @@
 // Minimal CodeMirror 6 editor with a hand-written Toit syntax highlighter.
-// Falls back to a plain <textarea> if the CDN modules can't load (offline).
-import { EditorView, basicSetup } from "https://esm.sh/codemirror@6.0.1";
-import { StreamLanguage } from "https://esm.sh/@codemirror/language@6.10.2";
-import { oneDark } from "https://esm.sh/@codemirror/theme-one-dark@6.1.2";
+// Starts as a plain <textarea> and upgrades once the CDN modules load, so a slow
+// or offline CDN never blocks the app.
 
 const KEYWORDS = new Set((
   "import export as show class interface extends implements mixin with abstract " +
@@ -10,7 +8,7 @@ const KEYWORDS = new Set((
   "assert throw and or not null true false this super it in is")
   .split(" "));
 
-const toitLang = StreamLanguage.define({
+const toitMode = {
   token(stream) {
     if (stream.eatSpace()) return null;
     // line comment
@@ -38,25 +36,35 @@ const toitLang = StreamLanguage.define({
     return null;
   },
   languageData: { commentTokens: { line: "//" } },
-});
+};
 
 export function createEditor(parent, doc) {
-  try {
-    const view = new EditorView({
-      parent,
-      doc,
-      extensions: [basicSetup, toitLang, oneDark, EditorView.lineWrapping],
+  const ta = document.createElement("textarea");
+  ta.className = "editor-fallback";
+  ta.spellcheck = false;
+  ta.value = doc;
+  parent.appendChild(ta);
+  let view = null;
+  upgrade().catch((e) => console.warn("CodeMirror unavailable, using textarea:", e));
+
+  async function upgrade() {
+    const [{ EditorView, basicSetup }, { StreamLanguage }, { oneDark }] = await Promise.all([
+      import("https://esm.sh/codemirror@6.0.1"),
+      import("https://esm.sh/@codemirror/language@6.10.2"),
+      import("https://esm.sh/@codemirror/theme-one-dark@6.1.2"),
+    ]);
+    view = new EditorView({
+      doc: ta.value,
+      extensions: [basicSetup, StreamLanguage.define(toitMode), oneDark, EditorView.lineWrapping],
     });
-    return {
-      getValue: () => view.state.doc.toString(),
-      setValue: (v) => view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: v } }),
-    };
-  } catch (e) {
-    console.warn("CodeMirror unavailable, using textarea:", e);
-    const ta = document.createElement("textarea");
-    ta.className = "editor-fallback";
-    ta.value = doc;
-    parent.appendChild(ta);
-    return { getValue: () => ta.value, setValue: (v) => { ta.value = v; } };
+    ta.replaceWith(view.dom);
   }
+
+  return {
+    getValue: () => (view ? view.state.doc.toString() : ta.value),
+    setValue: (v) => {
+      if (view) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: v } });
+      else ta.value = v;
+    },
+  };
 }

@@ -19,7 +19,9 @@
   header h1 { font-size: 18px; margin: 0; }
   header .sub { color: var(--dim); font-size: 12px; }
   #status { margin-left: auto; color: var(--accent); font-size: 12px; }
-  main { display: grid; grid-template-columns: 320px 1fr; gap: 0; height: calc(100vh - 51px); }
+  main { display: grid; grid-template-columns: 320px 1fr; gap: 0; height: calc(100vh - 51px - 25px); }
+  footer { height: 25px; padding: 4px 20px; border-top: 1px solid var(--border); color: var(--dim);
+           font-size: 11px; display: flex; gap: 16px; }
   .side { padding: 18px 20px; border-right: 1px solid var(--border); overflow-y: auto; }
   .right { display: grid; grid-template-rows: 1fr 240px; min-width: 0; }
   section h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
@@ -92,6 +94,14 @@
     <div id="console"></div>
   </div>
 </main>
-<script type="module" src="./app.js"></script>
+<footer><span id="mem-page"></span><span id="mem-tool">toolchain: not run yet</span></footer>
+<script type="module">
+  // Surface load failures (e.g. a stale cached module) instead of hanging.
+  import("./app.js").catch((e) => {
+    document.getElementById("status").textContent = "failed to load";
+    document.getElementById("console").textContent =
+      "Failed to load the app: " + e.message + "\nTry a hard reload (Ctrl+Shift+R).";
+  });
+</script>
 </body>
 </html>

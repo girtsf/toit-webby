@@ -41,8 +41,15 @@ dl "https://registry.npmjs.org/esptool-js/-/esptool-js-$ESPTOOL_JS_VERSION.tgz" 
 tar xzf "$TMP/esptool-js.tgz" -C "$TMP" package/bundle.js
 cp "$TMP/package/bundle.js" "$WEB/vendor/esptool-js.js"
 
+# Uncompressed sizes for download progress (Pages serves these gzipped).
+write_sizes() {
+  (cd "$WEB" && find assets wasm -type f -printf '%p\t%s\n' | sort) \
+    | jq -R 'split("\t") | {(.[0]): (.[1] | tonumber)}' | jq -s add > "$WEB/sizes.json"
+}
+
 if [[ "${SKIP_WASM:-}" == 1 ]]; then
   echo "wasm: skipped"
+  write_sizes
   exit 0
 fi
 if [[ -z "${WASM_REPO:-}" ]]; then
@@ -51,3 +58,4 @@ fi
 echo "wasm $WASM_TAG from $WASM_REPO"
 dl "https://github.com/$WASM_REPO/releases/download/$WASM_TAG/toit-wasm.tar.gz" "$TMP/toit-wasm.tar.gz"
 tar xzf "$TMP/toit-wasm.tar.gz" -C "$WEB/wasm"
+write_sizes

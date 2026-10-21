@@ -8,45 +8,62 @@
 //   toit.js/.wasm/.data           (full CLI/VM; pthreads -> needs COOP/COEP)
 // The SDK core library is baked into each .data (preloaded at /sdk/lib/toit/lib).
 
+import { fetchBytes } from "./fetch-progress.js";
+
 const WASM_BASE = new URL("./wasm/", import.meta.url).href;
 
-async function loadFactory(name) {
-  const mod = await import(`${WASM_BASE}${name}.js`);
-  return mod.default;
+// `fn(label, loaded, total)` is called while wasm binaries download.
+let progressFn = null;
+export function onProgress(fn) { progressFn = fn; }
+
+// `fn(label, { size, touched })` is called after each toolchain run with the
+// instance's wasm memory size and an estimate of how much of it was used.
+let memoryFn = null;
+export function onMemory(fn) { memoryFn = fn; }
+
+const LABELS = { "toit.compile": "compiler", "toit": "Toit VM" };
+// The .wasm and .data of each binary, downloaded once and kept in memory.
+const binaries = new Map();
+function loadBinaries(name) {
+  if (!binaries.has(name)) {
+    const files = [`wasm/${name}.wasm`, `wasm/${name}.data`];
+    const loaded = [0, 0], totals = [null, null];
+    const report = () => progressFn?.(LABELS[name], loaded[0] + loaded[1],
+      totals.includes(null) ? null : totals[0] + totals[1]);
+    const p = Promise.all(files.map((f, i) => fetchBytes(f, (l, t) => {
+      loaded[i] = l; totals[i] = t; report();
+    }))).then(([wasm, data]) => ({ wasm, data }));
+    p.catch(() => binaries.delete(name));
+    binaries.set(name, p);
+  }
+  return binaries.get(name);
 }
 
-// Runs one tool invocation on a fresh module instance. `files` maps MEMFS path
-// -> Uint8Array (inputs). `outputs` lists paths to read back afterwards.
-// Returns { rc, stdout, stderr, out: {path: Uint8Array} }.
-async function runTool(name, args, { files = {}, outputs = [], execPath } = {}) {
-  const factory = await loadFactory(name);
-  let stdout = "", stderr = "";
-  const Module = {
-    noInitialRun: true,
-    locateFile: (p) => `${WASM_BASE}${p}`,
-    print: (t) => { stdout += t + "\n"; },
-    printErr: (t) => { stderr += t + "\n"; },
-    preRun: [(m) => {
-      m.ENV.TOIT_EXECUTABLE = execPath;
-      try { m.FS.mkdir("/work"); } catch (_) {}
-      for (const [path, data] of Object.entries(files)) {
-        const slash = path.lastIndexOf("/");
-        if (slash > 0) mkdirp(m.FS, path.slice(0, slash));
-        m.FS.writeFile(path, data);
-      }
-    }],
-  };
-  const instance = await factory(Module);
-  const rc = instance.callMain(args);
-  const out = {};
-  if (rc === 0) for (const p of outputs) out[p] = instance.FS.readFile(p);
-  return { rc, stdout, stderr, out };
-}
-
-function mkdirp(FS, dir) {
-  const parts = dir.split("/").filter(Boolean);
-  let cur = "";
-  for (const p of parts) { cur += "/" + p; try { FS.mkdir(cur); } catch (_) {} }
+// Runs tool invocations (`steps`, a list of argument lists, in order) on one
+// fresh module instance inside a dedicated worker; the steps share the
+// instance's memory and MEMFS. `files` maps MEMFS path -> Uint8Array (inputs).
+// `outputs` lists paths to read back after the last step.
+// Returns { rc, stdout, stderr, out: {path: Uint8Array}, failed?: args }.
+// Emscripten never tears an instance down (EXIT_RUNTIME=0) and something keeps
+// each one (its wasm memory is hundreds of MB) alive, so the worker is
+// terminated afterwards, which reliably frees everything. It also keeps the
+// page responsive while the tool runs.
+async function runTool(name, steps, { files = {}, outputs = [], execPath } = {}) {
+  const { wasm, data } = await loadBinaries(name);
+  const worker = new Worker(new URL("./tool-worker.js", import.meta.url), { type: "module" });
+  try {
+    return await new Promise((resolve, reject) => {
+      worker.onmessage = (e) => {
+        if (e.data.error) return reject(new Error(e.data.error));
+        memoryFn?.(LABELS[name], e.data.memory);
+        resolve(e.data);
+      };
+      worker.onerror = (e) => reject(new Error("tool worker: " + (e.message || "failed to start")));
+      worker.postMessage({ url: `${WASM_BASE}${name}.js`, steps, files, outputs, execPath, wasm, data });
+    });
+  } finally {
+    worker.terminate();
+  }
 }
 
 const COMPILE_EXE = "/sdk/lib/toit/bin/toit.compile";
@@ -56,7 +73,7 @@ const VM_EXE = "/sdk/lib/toit/bin/toit.run";
 export async function compile(source) {
   const enc = new TextEncoder();
   const r = await runTool("toit.compile",
-    ["-w", "/work/out.snapshot", "/work/main.toit"],
+    [["-w", "/work/out.snapshot", "/work/main.toit"]],
     { files: { "/work/main.toit": enc.encode(source) }, outputs: ["/work/out.snapshot"], execPath: COMPILE_EXE });
   if (r.rc !== 0) throw new Error("compile failed:\n" + (r.stderr || r.stdout));
   return r.out["/work/out.snapshot"];
@@ -65,8 +82,8 @@ export async function compile(source) {
 // Convert a snapshot to an installable device image (32-bit ESP32 family).
 export async function snapshotToImage(snapshot, { wordSize = 4 } = {}) {
   const r = await runTool("toit",
-    ["tool", "snapshot-to-image", "--format=binary", "-m" + (wordSize * 8),
-     "--output", "/work/out.image", "/work/in.snapshot"],
+    [["tool", "snapshot-to-image", "--format=binary", "-m" + (wordSize * 8),
+      "--output", "/work/out.image", "/work/in.snapshot"]],
     { files: { "/work/in.snapshot": snapshot }, outputs: ["/work/out.image"], execPath: VM_EXE });
   if (r.rc !== 0) throw new Error("snapshot-to-image failed:\n" + (r.stderr || r.stdout));
   return r.out["/work/out.image"];
@@ -75,6 +92,27 @@ export async function snapshotToImage(snapshot, { wordSize = 4 } = {}) {
 // One-shot: Toit source -> installable image.
 export async function buildImage(source) {
   return snapshotToImage(await compile(source));
+}
+
+// Drops the debug ELF (~25 of the envelope's ~27 MB) from an envelope (an ar
+// archive). Only `firmware extract --format=elf` reads it; leaving it out
+// keeps every firmware step from copying it around.
+export function slimEnvelope(envelope) {
+  const dec = new TextDecoder();
+  const parts = [envelope.subarray(0, 8)];  // "!<arch>\n"
+  let pos = 8;
+  while (pos < envelope.length) {
+    const header = envelope.subarray(pos, pos + 60);
+    const name = dec.decode(header.subarray(0, 16)).trim().replace(/\/$/, "");
+    const size = parseInt(dec.decode(header.subarray(48, 58)), 10);
+    const end = pos + 60 + size + (size & 1);
+    if (name !== "$firmware.elf") parts.push(envelope.subarray(pos, end));
+    pos = end;
+  }
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let off = 0;
+  for (const p of parts) { out.set(p, off); off += p.length; }
+  return out;
 }
 
 // Build a complete flashable firmware image (bootloader+partitions+app+config)
@@ -86,29 +124,24 @@ export async function buildFlashImage(envelope, { name, id, chip = "esp32s3",
   const jagCfg = enc.encode(JSON.stringify({ id, name, chip, endpointUart: { baud: uartBaud } }));
   const wifiCfg = enc.encode(JSON.stringify({ wifi: { "wifi.ssid": wifiSsid, "wifi.password": wifiPassword } }));
 
-  // Each step runs on a fresh VM instance (proven path); intermediate files are
-  // carried forward in `fs`.
-  const fs = {
-    "/work/jagcfg.json": jagCfg,
-    "/work/wifi.json": wifiCfg,
-    "/work/envelope": envelope,
-    "/work/jaguar.snapshot": jaguarSnapshot,
-  };
-  const step = async (args, inputs, outputs) => {
-    const files = {}; for (const p of inputs) files[p] = fs[p];
-    const r = await runTool("toit", args, { files, outputs, execPath: VM_EXE });
-    if (r.rc !== 0) throw new Error("firmware step failed (" + args.join(" ") + "):\n" + r.stderr);
-    Object.assign(fs, r.out);
-  };
-  await step(["tool", "assets", "-e", "/work/assets.bin", "create"], [], ["/work/assets.bin"]);
-  await step(["tool", "assets", "-e", "/work/assets.bin", "add", "--format=tison", "config", "/work/jagcfg.json"],
-    ["/work/assets.bin", "/work/jagcfg.json"], ["/work/assets.bin"]);
-  await step(["tool", "firmware", "-e", "/work/envelope", "container", "install", "-o", "/work/e2",
-       "--assets", "/work/assets.bin", "--trigger=boot", "--critical", "jaguar", "/work/jaguar.snapshot"],
-    ["/work/envelope", "/work/assets.bin", "/work/jaguar.snapshot"], ["/work/e2"]);
-  await step(["tool", "firmware", "-e", "/work/e2", "property", "set", "uuid", id],
-    ["/work/e2"], ["/work/e2"]);
-  await step(["tool", "firmware", "-e", "/work/e2", "extract", "--format=image", "-o", "/work/flash.bin", "--config", "/work/wifi.json"],
-    ["/work/e2", "/work/wifi.json"], ["/work/flash.bin"]);
-  return fs["/work/flash.bin"];
+  // All steps run on one VM instance; intermediate files stay in its MEMFS.
+  const r = await runTool("toit", [
+    ["tool", "assets", "-e", "/work/assets.bin", "create"],
+    ["tool", "assets", "-e", "/work/assets.bin", "add", "--format=tison", "config", "/work/jagcfg.json"],
+    ["tool", "firmware", "-e", "/work/envelope", "container", "install", "-o", "/work/e2",
+     "--assets", "/work/assets.bin", "--trigger=boot", "--critical", "jaguar", "/work/jaguar.snapshot"],
+    ["tool", "firmware", "-e", "/work/e2", "property", "set", "uuid", id],
+    ["tool", "firmware", "-e", "/work/e2", "extract", "--format=image", "-o", "/work/flash.bin", "--config", "/work/wifi.json"],
+  ], {
+    files: {
+      "/work/jagcfg.json": jagCfg,
+      "/work/wifi.json": wifiCfg,
+      "/work/envelope": slimEnvelope(envelope),
+      "/work/jaguar.snapshot": jaguarSnapshot,
+    },
+    outputs: ["/work/flash.bin"],
+    execPath: VM_EXE,
+  });
+  if (r.rc !== 0) throw new Error("firmware step failed (" + r.failed.join(" ") + "):\n" + r.stderr);
+  return r.out["/work/flash.bin"];
 }

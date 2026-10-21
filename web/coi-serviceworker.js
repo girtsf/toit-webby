@@ -9,8 +9,11 @@ if (typeof window === "undefined") {
   self.addEventListener("fetch", (event) => {
     const r = event.request;
     if (r.cache === "only-if-cached" && r.mode !== "same-origin") return;
+    // Revalidate same-origin files (cheap 304s) so a deploy never mixes cached
+    // old modules with new ones (GitHub Pages sends max-age=600).
+    const sameOrigin = new URL(r.url).origin === self.location.origin;
     event.respondWith(
-      fetch(r)
+      fetch(sameOrigin ? new Request(r, { cache: "no-cache" }) : r)
         .then((response) => {
           if (response.status === 0) return response;
           const headers = new Headers(response.headers);

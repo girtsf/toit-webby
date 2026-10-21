@@ -1,6 +1,7 @@
 // Toit Webby — flash Jaguar onto an ESP32 over USB, then compile & run Toit
 // code on it, entirely in the browser. Serial-first (no network needed).
 import * as toit from "./toit-runtime.js";
+import { fetchBytes, mb } from "./fetch-progress.js";
 import { requestPort, detectChip, flashImage, WebSerialTransport, isSupported } from "./web-serial.js";
 import { JaguarUart } from "./jaguar-uart.js";
 import { createEditor } from "./editor.js";
@@ -42,6 +43,8 @@ main:
 `;
 
 const editor = createEditor($("editor"), DEFAULT_CODE);
+toit.onProgress((label, loaded, total) => setStatus("loading " + label + "… " + progressText(loaded, total)));
+const progressText = (loaded, total) => mb(loaded) + (total ? " / " + mb(total) : "") + " MB";
 
 // ---- Connect -------------------------------------------------------------
 $("connect").addEventListener("click", async () => {
@@ -122,7 +125,7 @@ $("flash").addEventListener("click", async () => {
     setStatus("flashing…");
     await disconnectJag();
     const envName = $("envelope").value;
-    log("Fetching firmware envelope '" + envName + "' (~11 MB)…");
+    log("Fetching firmware envelope '" + envName + "'…");
     const envelope = await getEnvelope(envName);
     log("Loading Jaguar runtime…");
     const jaguarSnapshot = new Uint8Array(await (await fetch("./assets/jaguar.snapshot")).arrayBuffer());
@@ -217,9 +220,8 @@ async function getEnvelope(name) {
   // 1) same-origin vendored copy (works under COEP); 2) GitHub (often CORS-blocked).
   for (const [where, url] of [["app server", envelopeLocal(name)], ["GitHub", envelopeUrl(name)]]) {
     try {
-      const resp = await fetch(url);
-      if (!resp.ok) throw new Error("HTTP " + resp.status);
-      state.envelope = { name, data: await gunzip(resp.body) };
+      const gz = await fetchBytes(url, (l, t) => setStatus("loading envelope… " + progressText(l, t)));
+      state.envelope = { name, data: toit.slimEnvelope(await gunzip(new Blob([gz]).stream())) };
       return state.envelope.data;
     } catch (e) {
       log("Envelope fetch from " + where + " failed (" + e.message + ").", "dim");
@@ -232,8 +234,8 @@ async function getEnvelope(name) {
   const data = file.name.endsWith(".gz")
     ? await gunzip(new Blob([raw]).stream())
     : raw;
-  state.envelope = { name, data };
-  return data;
+  state.envelope = { name, data: toit.slimEnvelope(data) };
+  return state.envelope.data;
 }
 
 function pickFile(accept) {
@@ -246,6 +248,21 @@ function pickFile(accept) {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// ---- Memory footer ---------------------------------------------------------
+// Browsers don't expose real memory use to pages. Show the page's JS heap
+// (Chromium only) and, after each toolchain run, the worker's estimate of the
+// wasm memory it used (see memoryStats in tool-worker.js).
+function watchMemory() {
+  if (!performance.memory) return;
+  $("mem-page").textContent = "page JS heap: " + mb(performance.memory.usedJSHeapSize) + " MB";
+  setTimeout(watchMemory, 1000);
+}
+watchMemory();
+toit.onMemory((label, { size, touched }) => {
+  $("mem-tool").textContent = "last toolchain run (" + label + "): ~" + mb(touched) +
+    " MB wasm memory used (" + mb(size) + " MB reserved; freed after the run)";
+});
 
 // ---- Init ----------------------------------------------------------------
 if (!isSupported()) {

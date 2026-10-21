@@ -11,6 +11,7 @@ COOP/COEP); each Pages deploy is smoke-tested in CI. See `../../README.md`.
 
 | Idea | One-liner |
 |------|-----------|
+| [device-served-app](device-served-app.md) | Run the app from the device's http origin: Wi-Fi without LNA (Safari, phones) |
 | [firefox-safari-bridge](firefox-safari-bridge.md) | Local WebSocket agent so non-Chromium browsers work |
 | [lan-discovery](lan-discovery.md) | Find already-networked Toit devices (the hard browser limit) |
 | [network-run-transport](network-run-transport.md) | Push code over Wi-Fi/HTTP, not just USB |

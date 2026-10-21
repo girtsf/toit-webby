@@ -9,7 +9,6 @@ with Jaguar\* (run, install, containers, live output, decoded stack traces). See
 
 | Idea | One-liner |
 |------|-----------|
-| [single-threaded-vm](single-threaded-vm.md) | Drop cross-origin isolation by building the VM without pthreads |
 | [firefox-safari-bridge](firefox-safari-bridge.md) | Local WebSocket agent so non-Chromium browsers work |
 | [lan-discovery](lan-discovery.md) | Find already-networked Toit devices (the hard browser limit) |
 | [network-run-transport](network-run-transport.md) | Push code over Wi-Fi/HTTP, not just USB |

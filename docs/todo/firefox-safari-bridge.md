@@ -4,7 +4,7 @@
 Firefox and Safari don't implement the Web Serial API (Mozilla/Apple declined it
 on security grounds), and there's no flag or extension API for it. So the device
 half of the app can't run there as a pure page. The in-browser compile/VM parts
-DO work in Firefox (WebAssembly + SharedArrayBuffer-with-COOP/COEP are fine).
+DO work in Firefox (plain single-threaded WebAssembly).
 
 ## Approach
 Move serial I/O out of the page into a tiny local agent:

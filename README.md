@@ -16,8 +16,8 @@ needs the network — code is pushed down the same USB cable.
 
 **Validated end-to-end in a real browser, on a real ESP32-S3:**
 - In-browser `toit.compile`, `snapshot-to-image`, and full firmware-image build
-  (bootloader+partitions+app+config) — all in WebAssembly, running in Chrome
-  with cross-origin isolation (`web/selftest.html`).
+  (bootloader+partitions+app+config) — all in single-threaded WebAssembly, so
+  any static host works: no cross-origin isolation needed (`web/selftest.html`).
 - **Flash:** firmware built in-browser (4 MB) is written over Web Serial with
   esptool-js, and the device boots into Jaguar.
 - **Run:** compile → image → stream over Web Serial with the Jaguar UART
@@ -65,9 +65,8 @@ How the HTTPS page reaches an HTTP device: Chrome's [Local Network
 Access](https://developer.chrome.com/blog/local-network-access) exempts
 `*.local` names and private IPs from mixed-content blocking, behind a one-time
 "allow access to devices on your local network" prompt. The page stays on HTTPS
-on purpose: serving the app from the device's `http://` origin would lose
-cross-origin isolation (not a secure context), so no `SharedArrayBuffer` and no
-wasm VM for building images. Hence the device's page only redirects.
+on purpose: the device's `http://` origin is not a secure context, so no Web
+Serial there. Hence the device's page only redirects.
 
 Stack traces: logd captures the encoded system message; the page decodes it
 with `assets/decode.snapshot` (`decoder/decode.toit`, built from the SDK's own
@@ -101,7 +100,7 @@ tools/build-snapshots.sh   # Jaguar* and the trace decoder (native Toit SDK)
 tools/fetch-assets.sh      # envelopes, esptool-js, prebuilt wasm
                            # (ENVELOPES='^esp32s3$' to fetch just one, ~11 MB each)
 cd web
-python3 serve.py 8000      # serves with COOP/COEP (needed for the VM's threads)
+python3 serve.py 8000      # static server with wasm MIME type, no caching
 # open http://localhost:8000  in Chrome/Edge/Opera
 ```
 
@@ -117,8 +116,8 @@ python3 serve.py 8000      # serves with COOP/COEP (needed for the VM's threads)
 
 Deploying to GitHub Pages: `.github/workflows/pages.yml` runs
 `tools/fetch-assets.sh` and deploys `web/` as a Pages artifact (set Pages source
-to "GitHub Actions"). `coi-serviceworker.js` adds the required COOP/COEP headers
-on static hosts.
+to "GitHub Actions"). No special headers are needed (`coi-serviceworker.js` only
+retires the cross-origin isolation shim older versions installed).
 
 Binaries are not in git. Upstream ones (all ESP32 envelopes, esptool-js) are
 fetched from their releases at the versions pinned in `versions.env`; the

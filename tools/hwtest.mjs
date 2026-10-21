@@ -32,7 +32,6 @@ try {
       (await navigator.serial.getPorts()).find((p) => p.getInfo().usbVendorId === 0x10c4);
   });
   await page.goto(APP, { waitUntil: "networkidle2" });
-  await page.waitForFunction(() => crossOriginIsolated, { timeout: 15000 });
 
   // Mirror the app console as it grows.
   let seen = 0;

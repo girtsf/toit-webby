@@ -15,8 +15,8 @@ go-to-def, hover types).
    (`third_party/toit/tools/lsp/`, and `toit` has an `lsp` subcommand). It's a
    Toit program, so it could run on the same wasm VM and drive CodeMirror's LSP
    client features (completion, hover, diagnostics, definitions). Bigger lift:
-   LSP is long-running/stateful, which pushes on the single-shot VM model and the
-   pthread/COI story (see single-threaded-vm.md). Investigate feasibility.
+   LSP is long-running/stateful, which pushes on the single-shot VM model (and
+   the VM is single-threaded, see docs/BUILD.md). Investigate feasibility.
 3. **Better tokenizer.** If full LSP is too much, improve the StreamLanguage:
    string interpolation (`$x`, `$(expr)`), toitdoc comments, nested types,
    indentation-aware folding.

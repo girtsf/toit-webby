@@ -5,7 +5,7 @@
 //
 // Layout expected under ./wasm/ :
 //   toit.compile.js/.wasm/.data   (compiler; single-threaded)
-//   toit.js/.wasm/.data           (full CLI/VM; pthreads -> needs COOP/COEP)
+//   toit.js/.wasm/.data           (full CLI/VM; single-threaded too)
 // The SDK core library is baked into each .data (preloaded at /sdk/lib/toit/lib).
 
 import { fetchBytes } from "./fetch-progress.js";

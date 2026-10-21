@@ -10,8 +10,8 @@ import { EXAMPLES } from "./examples.js";
 import { createEditor } from "./editor.js";
 
 const SDK_VERSION = "v2.0.0-alpha.199";
-// Prefer a same-origin copy: GitHub's release assets send no CORS/CORP headers,
-// so a cross-origin fetch is blocked under cross-origin isolation (COEP). Vendor
+// Prefer a same-origin copy: GitHub's release assets send no CORS headers, so a
+// cross-origin fetch is usually blocked. Vendor
 // the envelopes next to the app (assets/) and serve them from the same origin.
 // assets/envelopes.json lists the vendored envelope names (see fetch-assets.sh).
 const envelopeLocal = (name) => `./assets/firmware-${name}.envelope.gz`;
@@ -513,7 +513,7 @@ async function gunzip(stream) {
 }
 async function getEnvelope(name) {
   if (state.envelope?.name === name) return state.envelope.data;
-  // 1) same-origin vendored copy (works under COEP); 2) GitHub (often CORS-blocked).
+  // 1) same-origin vendored copy; 2) GitHub (often CORS-blocked).
   for (const [where, url] of [["app server", envelopeLocal(name)], ["GitHub", envelopeUrl(name)]]) {
     try {
       const gz = await fetchBytes(url, (l, t) => setStatus("loading envelope… " + progressText(l, t)));
@@ -575,8 +575,7 @@ if (!isSupported()) {
   log("This browser doesn't support Web Serial (USB). Use Chrome, Edge, or Opera over HTTPS/localhost.", "err");
   enable("connect", false);
 } else {
-  setStatus(window.crossOriginIsolated ? "ready" : "ready (no cross-origin isolation — VM may fail)");
-  if (!window.crossOriginIsolated) log("Not cross-origin isolated; the Toit VM needs it. The service worker should reload the page once.", "dim");
+  setStatus("ready");
 }
 // A Jaguar* device's page sends the browser here with #device=<host:port>.
 {
@@ -584,9 +583,7 @@ if (!isSupported()) {
   let saved = null;
   try { saved = localStorage.getItem("webby.wifiHost"); } catch (_) {}
   $("wifi-host").value = fromDevice || saved || "";
-  // Without isolation the service worker is about to reload the page (keeping
-  // the hash); connect after that.
-  if (fromDevice && window.crossOriginIsolated) {
+  if (fromDevice) {
     history.replaceState(null, "", location.pathname + location.search);
     connectWifi(fromDevice);
   }

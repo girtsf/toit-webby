@@ -1,6 +1,6 @@
 import puppeteer from "puppeteer";
 const url = process.argv[2];
-const browser = await puppeteer.launch({ headless: "new", args: ["--enable-features=SharedArrayBuffer","--no-sandbox"] });
+const browser = await puppeteer.launch({ headless: "new", args: ["--no-sandbox"] });
 const page = await browser.newPage();
 page.on("console", m => console.log("[console]", m.text()));
 page.on("pageerror", e => console.log("[pageerror]", e.message));

@@ -1,6 +1,6 @@
 // In-browser Toit toolchain: runs the wasm-compiled `toit.compile` and `toit`
-// (VM) binaries to turn source into a device-installable image, and to build a
-// full flashable firmware image. Each high-level op instantiates a fresh module
+// (VM) binaries to turn source into a device-installable image, and to build the
+// firmware to flash. Each high-level op instantiates a fresh module
 // so emscripten global state never leaks between runs.
 //
 // Layout expected under ./wasm/ :
@@ -40,7 +40,8 @@ function loadBinaries(name) {
 // Runs tool invocations (`steps`, a list of argument lists, in order) on one
 // fresh module instance inside a dedicated worker; the steps share the
 // instance's memory and MEMFS. `files` maps MEMFS path -> Uint8Array (inputs).
-// `outputs` lists paths to read back after the last step.
+// `outputs` lists paths to read back after the last step ("dir/" reads a
+// directory's files).
 // Returns { rc, stdout, stderr, out: {path: Uint8Array}, failed?: args }.
 // Emscripten never tears an instance down (EXIT_RUNTIME=0) and something keeps
 // each one (its wasm memory is hundreds of MB) alive, so the worker is
@@ -143,9 +144,17 @@ export function slimEnvelope(envelope) {
 // Mirrors `jag flash` done entirely in wasm. Returns the 0x0 flash blob.
 // `partitions` optionally overrides the envelope's partition table (CSV bytes).
 // `webbyUrl` is the app's URL, for Jaguar* (its bootstrap page and CORS).
-export async function buildFlashImage(envelope, { name, id, chip = "esp32s3",
+// What `toit tool firmware flash` would hand to esptool, built by the SDK's own
+// code (assets/flash-parts.snapshot, see flasher/flash-parts.toit): a Jaguar*
+// firmware for `envelope`, as pieces to write at their offsets.
+// `flashSizeMB` (the detected flash) adds a 'data' partition over the flash
+// the partition table leaves unused.
+// Returns { parts: [{ address, data }], chip, flashSizeMB, flashing }.
+let flasherSnapshot = null;
+export async function buildFlashParts(envelope, { name, id, chip = "esp32s3",
     wifiSsid = "", wifiPassword = "", uartBaud = 921600, jaguarSnapshot, partitions = null,
-    webbyUrl = null } = {}) {
+    webbyUrl = null, flashSizeMB = null } = {}) {
+  flasherSnapshot ??= fetchBytes("assets/flash-parts.snapshot").catch((e) => { flasherSnapshot = null; throw e; });
   const enc = new TextEncoder();
   const jagCfg = enc.encode(JSON.stringify({ id, name, chip, endpointUart: { baud: uartBaud },
     ...(webbyUrl ? { webby: { url: webbyUrl } } : {}) }));
@@ -158,19 +167,26 @@ export async function buildFlashImage(envelope, { name, id, chip = "esp32s3",
     ["tool", "firmware", "-e", "/work/envelope", "container", "install", "-o", "/work/e2",
      "--assets", "/work/assets.bin", "--trigger=boot", "--critical", "jaguar", "/work/jaguar.snapshot"],
     ["tool", "firmware", "-e", "/work/e2", "property", "set", "uuid", id],
-    ["tool", "firmware", "-e", "/work/e2", "extract", "--format=image", "-o", "/work/flash.bin", "--config", "/work/wifi.json",
-     ...(partitions ? ["--partitions", "/work/partitions.csv"] : [])],
+    ["/work/flash-parts.snapshot", "-e", "/work/e2", "-o", "/work/flash", "--config", "/work/wifi.json",
+     ...(partitions ? ["--partitions", "/work/partitions.csv"] : []),
+     ...(flashSizeMB ? ["--flash-size-mb", String(flashSizeMB)] : [])],
   ], {
     files: {
       "/work/jagcfg.json": jagCfg,
       "/work/wifi.json": wifiCfg,
       "/work/envelope": slimEnvelope(envelope),
       "/work/jaguar.snapshot": jaguarSnapshot,
+      "/work/flash-parts.snapshot": await flasherSnapshot,
       ...(partitions ? { "/work/partitions.csv": partitions } : {}),
     },
-    outputs: ["/work/flash.bin"],
+    outputs: ["/work/flash/"],
     execPath: VM_EXE,
   });
   if (r.rc !== 0) throw new Error("firmware step failed (" + r.failed.join(" ") + "):\n" + r.stderr + r.stdout);
-  return r.out["/work/flash.bin"];
+  const out = r.out["/work/flash/"];
+  const info = JSON.parse(new TextDecoder().decode(out["flashing.json"]));
+  const parts = Object.entries(out).filter(([f]) => f.endsWith(".bin"))
+    .map(([f, data]) => ({ address: parseInt(f, 16), data }))
+    .sort((a, b) => a.address - b.address);
+  return { parts, chip: info.chip, flashSizeMB: info["flash-size-mb"], flashing: info.flashing };
 }

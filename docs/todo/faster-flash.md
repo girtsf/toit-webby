@@ -1,18 +1,16 @@
 # Faster / less destructive flashing
 
 ## Why
-Flashing currently writes the whole 4 MB image at 0x0 over Web Serial via
-esptool-js (~47 s here). It's a one-time-per-device step, but could be nicer.
+Flashing writes the pieces `toit tool firmware flash` would (bootloader,
+partition table, otadata, app; ~1.7 MB, ~26 s on the ESP32-S3 here) over Web
+Serial via esptool-js. It's a one-time-per-device step, but could be nicer.
 
 ## Ideas
 1. **Higher baud.** esptool-js connects at romBaudrate 115200 then uses 921600.
    Try a higher flash baud (some CP210x/boards do 1.5M+). Measure; fall back on
    failure.
-2. **Only flash what's needed.** Instead of a full 0x0 image
-   (bootloader+partitions+app), flash just the app partition on re-flash if the
-   bootloader/partition table are unchanged (like `jag` does — app at 0x10000).
-   Requires knowing offsets; `toit tool firmware` can extract per-partition.
-   Keeps re-flash fast and avoids rewriting the bootloader every time.
+2. **Only flash what changed.** Done for the empty partitions (like `jag`).
+   Could also skip the bootloader/partition table on a re-flash if unchanged.
 3. **Skip erase of unchanged regions.** esptool-js `eraseAll:false` already; make
    sure compress is optimal.
 4. **Verify + recover UX.** Surface esptool-js's hash verification result; on the
@@ -23,8 +21,6 @@ esptool-js (~47 s here). It's a one-time-per-device step, but could be nicer.
    (`sdkVersion`, `name`, `id`).
 
 ## Pointers
-- Flash code: `web/web-serial.js#flashImage` (esptool-js `writeFlash`).
-- Image build: `web/toit-runtime.js#buildFlashImage` (uses
-  `firmware extract --format=image`). For per-partition flashing, see
-  `third_party/jaguar/cmd/jag/commands/firmware_flash.go` (offsets, partition
-  table handling) and `firmware.toit` format options (`binary` vs `image`).
+- Flash code: `web/web-serial.js#flashParts` (esptool-js `writeFlash`).
+- Build: `web/toit-runtime.js#buildFlashParts` runs `flasher/flash-parts.toit`
+  (the SDK's `firmware flash` up to where it would call esptool).

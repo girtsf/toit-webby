@@ -55,13 +55,14 @@ try {
     const envelope = new Uint8Array(await new Response(
       new Blob([gz]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
     const t0 = performance.now();
-    const flash = await toit.buildFlashImage(envelope, {
+    const fw = await toit.buildFlashParts(envelope, {
       name: "smoke", id: "00000000-0000-4000-8000-000000000000",
-      jaguarSnapshot: await get("assets/jaguar-webby.snapshot"),
+      jaguarSnapshot: await get("assets/jaguar-webby.snapshot"), flashSizeMB: 16,
     });
-    return { size: flash.length, ms: Math.round(performance.now() - t0) };
+    return { parts: fw.parts.map((p) => p.address), mb: fw.flashSizeMB, ms: Math.round(performance.now() - t0) };
   }).catch((e) => ({ error: e.message }));
-  check(r.size === 4 * 1024 * 1024, "esp32s3 flash image: " + (r.error ?? `${r.size} bytes in ${r.ms} ms`));
+  check(r.parts?.join() === "0,32768,53248,65536" && r.mb === 16,
+    "esp32s3 firmware (16 MB): " + (r.error ?? `parts ${r.parts?.map((a) => "0x" + a.toString(16))} in ${r.ms} ms`));
 
   if (VERSIONED) {
     // Worker requests don't show up here, but the page's own do.

@@ -65,18 +65,21 @@ export async function detectChip(port, { onLog } = {}) {
   }));
 }
 
-// Flash a full firmware image to address 0x0 using esptool-js.
+// Flash `parts` ([{ address, data }]) using esptool-js. The images already
+// carry their flash settings, so those are kept.
 // `onProgress(fraction, label)` and `onLog(text)` are optional.
-export async function flashImage(port, flashBin, { onProgress, onLog } = {}) {
+export async function flashParts(port, parts, { onProgress, onLog } = {}) {
+  const total = parts.reduce((n, p) => n + p.data.length, 0);
+  const before = parts.map((_, i) => parts.slice(0, i).reduce((n, p) => n + p.data.length, 0));
   await withLoader(port, onLog, async (esp) => {
     await esp.writeFlash({
-      fileArray: [{ data: u8ToBinaryString(flashBin), address: 0x0 }],
+      fileArray: parts.map((p) => ({ data: u8ToBinaryString(p.data), address: p.address })),
       flashSize: "keep",
       flashMode: "keep",
       flashFreq: "keep",
       eraseAll: false,
       compress: true,
-      reportProgress: (idx, written, total) => { if (onProgress) onProgress(written / total, "writing"); },
+      reportProgress: (idx, written) => onProgress?.((before[idx] + written) / total, "writing"),
     });
   });
 }

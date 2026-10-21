@@ -18,8 +18,10 @@ needs the network — code is pushed down the same USB cable.
 - In-browser `toit.compile`, `snapshot-to-image`, and full firmware-image build
   (bootloader+partitions+app+config) — all in single-threaded WebAssembly, so
   any static host works: no cross-origin isolation needed (`web/selftest.html`).
-- **Flash:** firmware built in-browser (4 MB) is written over Web Serial with
-  esptool-js, and the device boots into Jaguar.
+- **Flash:** firmware built in-browser by the SDK's own `firmware flash` code
+  (`flasher/flash-parts.toit` stops where it would call esptool) is written
+  over Web Serial with esptool-js, and the device boots into Jaguar. Flash
+  beyond the envelope's partition table becomes a `data` partition.
 - **Run:** compile → image → stream over Web Serial with the Jaguar UART
   protocol (`web/jaguar-uart.js`); `run()` finishes in ~2.3 s and the program
   executes on the device (reproduced 3/3). Confirmed as one chain:
@@ -27,7 +29,7 @@ needs the network — code is pushed down the same USB cable.
 
 Notes from bringing it up:
 - esptool-js's post-flash `hard_reset` didn't reset the CP210x board here, so
-  `flashImage` does an explicit EN pulse (`setSignals`) after flashing. If a
+  `flashParts` does an explicit EN pulse (`setSignals`) after flashing. If a
   board still doesn't come up after flashing, unplug/replug.
 - esptool-js is vendored locally (`web/vendor/esptool-js.js`) because esm.sh
   can't resolve its dynamic stub-flasher import.
@@ -158,6 +160,7 @@ download doesn't overwrite it.
 - `device/` — Jaguar\* additions (`webby.toit`) and `host_run.toit`, which runs
   Jaguar\* on the host for testing without hardware
 - `decoder/` — the in-browser stack-trace decoder
+- `flasher/` — `toit tool firmware flash` without esptool (pieces to write)
 - `tools/` — build scripts and node harnesses used to validate
   (`smoketest.mjs`: any app URL, no hardware; `hwtest.mjs`: flash + Wi-Fi
   end-to-end on hardware; `wifitest.mjs`: Wi-Fi flow against any Jaguar\*, e.g.

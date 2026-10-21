@@ -8,7 +8,7 @@ smoothing. Protocol details and the hard-won quirks are in the project memory
 
 ## Things to improve
 1. **Post-flash reset portability.** esptool-js's `hard_reset` didn't reset the
-   CP210x board here, so `web/web-serial.js#flashImage` does an explicit EN pulse
+   CP210x board here, so `web/web-serial.js#flashParts` does an explicit EN pulse
    via `port.setSignals` afterward. Verify this on other bridges (CH340, FTDI,
    native USB-JTAG on some ESP32-S3/C3 boards where DTR/RTS semantics differ).
    Provide a clear "if it didn't boot, press reset / replug" path.

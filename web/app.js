@@ -3,7 +3,7 @@
 // protocol) or over Wi-Fi (Jaguar*'s HTTP API, see jaguar-http.js).
 import * as toit from "./toit-runtime.js";
 import { appUrl, fetchBytes, mb } from "./fetch-progress.js";
-import { requestPort, detectChip, flashImage, WebSerialTransport, isSupported } from "./web-serial.js";
+import { requestPort, detectChip, flashParts, WebSerialTransport, isSupported } from "./web-serial.js";
 import { JaguarUart } from "./jaguar-uart.js";
 import { JaguarHttp, mdnsHostname } from "./jaguar-http.js";
 import { EXAMPLES } from "./examples.js";
@@ -145,12 +145,19 @@ $("flash").addEventListener("click", async () => {
     if (partitions) log("Using Jaguar's partition table for " + state.chip.chip + ".", "dim");
     state.deviceId = crypto.randomUUID();
     log("Building firmware image in-browser (name='" + name + "', id=" + state.deviceId + ")…");
-    const flashBin = await toit.buildFlashImage(envelope, {
+    const flashMB = state.chip.flashSize;
+    if (!flashMB) log("Flash size unknown; keeping the envelope's partition table.", "dim");
+    const fw = await toit.buildFlashParts(envelope, {
       name, id: state.deviceId, chip: state.chip.chip, wifiSsid: ssid, wifiPassword: pass,
-      uartBaud: UART_BAUD, jaguarSnapshot, partitions, webbyUrl: APP_URL,
+      uartBaud: UART_BAUD, jaguarSnapshot, partitions, webbyUrl: APP_URL, flashSizeMB: flashMB,
     });
-    log("Flash image built: " + flashBin.length + " bytes. Writing over USB…");
-    await flashImage(state.port, flashBin, {
+    // As `toit tool firmware flash` checks.
+    if (flashMB && fw.flashSizeMB > flashMB) {
+      throw new Error(`This firmware needs ${fw.flashSizeMB} MB of flash, the device has ${flashMB} MB.`);
+    }
+    const bytes = fw.parts.reduce((n, p) => n + p.data.length, 0);
+    log(`Firmware built for ${fw.flashSizeMB} MB flash: ${fw.parts.length} parts, ${bytes} bytes. Writing over USB…`);
+    await flashParts(state.port, fw.parts, {
       onProgress: (f) => setStatus("flashing… " + Math.round(f * 100) + "%"),
       onLog: (t) => { if (t && t.trim()) log(t.trim(), "dim"); },
     });

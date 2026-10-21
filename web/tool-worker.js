@@ -33,7 +33,13 @@ self.onmessage = async ({ data: { url, steps, files, outputs, execPath, wasm, da
       }
     }
     const out = {};
-    for (const p of outputs) out[p] = instance.FS.readFile(p);
+    // A path ending in "/" reads that directory's files: { name: bytes }.
+    for (const p of outputs) {
+      out[p] = p.endsWith("/")
+        ? Object.fromEntries(instance.FS.readdir(p).filter((f) => f !== "." && f !== "..")
+          .map((f) => [f, instance.FS.readFile(p + f)]))
+        : instance.FS.readFile(p);
+    }
     self.postMessage({ rc: 0, stdout, stderr, out, memory: memoryStats(instance.HEAPU8) });
   } catch (e) {
     self.postMessage({ error: (e.stack || String(e)) + (stderr ? "\nstderr:\n" + stderr : "") });

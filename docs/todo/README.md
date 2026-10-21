@@ -5,7 +5,9 @@ open questions, and pointers into the code. Not committed work — a menu.
 
 Current state (for context): compile + firmware-build + run all work in-browser
 over Web Serial on a real ESP32-S3 (Chromium-family browsers), and over Wi-Fi
-with Jaguar\* (run, install, containers, live output, decoded stack traces). See `../../README.md`.
+with Jaguar\* (run, install, containers, live output, decoded stack traces).
+The toolchain is single-threaded wasm, so the app is plain static files (no
+COOP/COEP); each Pages deploy is smoke-tested in CI. See `../../README.md`.
 
 | Idea | One-liner |
 |------|-----------|

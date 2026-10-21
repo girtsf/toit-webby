@@ -79,4 +79,6 @@ cp build/wasm-vm/sdk/bin/toit.{js,wasm,data} web/wasm/
 ```
 node tools/toitc-node.mjs hello.toit out.snapshot     # compiler path
 node tools/browsertest.mjs http://localhost:8000/selftest.html  # full, in headless Chrome
+node tools/smoketest.mjs http://localhost:8000/   # selftest + app + flash-image build
 ```
+`tools/hwtest.mjs` then covers flashing and running on real hardware.

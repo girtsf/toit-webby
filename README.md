@@ -119,12 +119,15 @@ Deploying to GitHub Pages: `.github/workflows/pages.yml` runs
 content-hashed URLs, so a page load never mixes cached old and new files under
 Pages' 10-minute caching), and deploys `web/` as a Pages artifact (set Pages
 source to "GitHub Actions"). No special headers are needed (`coi-serviceworker.js` only
-retires the cross-origin isolation shim older versions installed).
+retires the cross-origin isolation shim older versions installed). A `smoke` job
+then runs `tools/smoketest.mjs` against the live site (selftest, app load,
+flash-image build, content-hashed URLs; no hardware).
 
 Binaries are not in git. Upstream ones (all ESP32 envelopes, esptool-js) are
 fetched from their releases at the versions pinned in `versions.env`; the
 snapshots are built in CI by `tools/build-snapshots.sh`; the wasm toolchain is a release asset of this repo (`WASM_TAG`),
-built by `.github/workflows/wasm-release.yml`.
+built by `.github/workflows/wasm-release.yml` (which by default only builds and
+compares with the current release; `publish` uploads).
 
 ## Building the wasm toolchain
 
@@ -145,9 +148,10 @@ download doesn't overwrite it.
 - `device/` — Jaguar\* additions (`webby.toit`) and `host_run.toit`, which runs
   Jaguar\* on the host for testing without hardware
 - `decoder/` — the in-browser stack-trace decoder
-- `tools/` — build scripts and node harnesses used to validate on hardware
-  (`hwtest.mjs`: flash + Wi-Fi end-to-end; `wifitest.mjs`: Wi-Fi flow against
-  any Jaguar\*, e.g. host-run; `serial-run.mjs`, `browsertest.mjs`, ...)
+- `tools/` — build scripts and node harnesses used to validate
+  (`smoketest.mjs`: any app URL, no hardware; `hwtest.mjs`: flash + Wi-Fi
+  end-to-end on hardware; `wifitest.mjs`: Wi-Fi flow against any Jaguar\*, e.g.
+  host-run; `serial-run.mjs`, `browsertest.mjs`, ...)
 
 ## AI Disclosure
 

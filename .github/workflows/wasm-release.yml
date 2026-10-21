@@ -1,8 +1,15 @@
 name: Build wasm release
 
-# Run manually after bumping WASM_TAG in versions.env.
+# Run manually. By default it only builds and compares the result with the
+# WASM_TAG release; with `publish`, it uploads it as WASM_TAG (bump WASM_TAG in
+# versions.env first, or it replaces the existing asset).
 on:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Upload the build as the WASM_TAG release asset
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -19,7 +26,24 @@ jobs:
           version: ${{ env.EMSDK_VERSION }}
       - name: Build
         run: tools/build-wasm.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: toit-wasm
+          path: build/toit-wasm.tar.gz
+      - name: Compare with the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p build/ours build/release
+          tar xzf build/toit-wasm.tar.gz -C build/ours
+          if gh release download "$WASM_TAG" -p toit-wasm.tar.gz -O - | tar xz -C build/release; then
+            (cd build/ours && sha256sum *) > build/ours.sha256
+            (cd build/release && sha256sum -c ../ours.sha256) || echo "::warning::differs from release $WASM_TAG"
+          else
+            echo "no release $WASM_TAG yet"
+          fi
       - name: Publish release
+        if: inputs.publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

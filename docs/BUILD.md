@@ -9,7 +9,9 @@ source third_party/emsdk/emsdk_env.sh
 HOST_TOIT=~/.cache/jaguar/v1.72.0/sdk/bin/toit tools/build-wasm.sh
 ```
 To publish: bump `WASM_TAG` in `versions.env`, push, run the "Build wasm
-release" workflow (or `gh release create $WASM_TAG build/toit-wasm.tar.gz`).
+release" workflow with `publish` (or `gh release create $WASM_TAG
+build/toit-wasm.tar.gz`). Without `publish` the workflow only builds and checks
+the result against the current release, file by file.
 
 Manual steps:
 

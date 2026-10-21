@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Populates the gitignored web/{assets,vendor,wasm} from pinned releases.
+# (The Jaguar* snapshot is built by tools/build-snapshots.sh instead.)
 # SKIP_WASM=1 leaves web/wasm alone (e.g. after a local tools/build-wasm.sh).
 # WASM_REPO=owner/name overrides where the wasm release is fetched from.
 # ENVELOPES=<regex> limits which envelopes are fetched (default: all ESP32 ones),
@@ -30,11 +31,6 @@ for n in "${names[@]}"; do
     "$WEB/assets/firmware-$n.envelope.gz"
 done
 printf '%s\n' "${names[@]}" | jq -R . | jq -s . > "$WEB/assets/envelopes.json"
-
-echo "jaguar.snapshot $JAGUAR_VERSION"
-dl "https://github.com/toitlang/jaguar/releases/download/$JAGUAR_VERSION/assets.tar.gz" "$TMP/assets.tar.gz"
-tar xzf "$TMP/assets.tar.gz" -C "$TMP" assets/jaguar.snapshot
-cp "$TMP/assets/jaguar.snapshot" "$WEB/assets/"
 
 # Jaguar's partition-table overrides (cmd/jag/commands/partitions.go): with this
 # SDK the C3/C6 firmware outgrows the envelopes' default OTA partitions.

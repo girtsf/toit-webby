@@ -1,0 +1,162 @@
+diff --git a/package.lock b/package.lock
+index 609d17d..74fb5ea 100644
+--- a/package.lock
++++ b/package.lock
+@@ -1,9 +1,15 @@
+-sdk: ^2.0.0-alpha.145
++sdk: ^2.0.0-alpha.196
+ prefixes:
+-  http: pkg-http
++  http: github.com/toitlang/pkg-http-2
++  logd: github.com/girtsf/toit-logd-0
+ packages:
+-  pkg-http:
++  github.com/girtsf/toit-logd-0:
++    hash: 2b339ec568f60be76205963388073ec8139e613f
++    prefixes:
++      http: github.com/toitlang/pkg-http-2
++    url: github.com/girtsf/toit-logd
++    version: 0.1.3
++  github.com/toitlang/pkg-http-2:
++    hash: 4ae82b7e95ac25267a6f4ddca6ecb8b1693dbdd2
+     url: github.com/toitlang/pkg-http
+-    name: http
+-    version: 2.7.2
+-    hash: 614dd0f374e70aab09f12e9466a35b779b9a8d63
++    version: 2.16.0
+diff --git a/package.yaml b/package.yaml
+index d0e5a21..b988b9b 100644
+--- a/package.yaml
++++ b/package.yaml
+@@ -3,4 +3,7 @@ environment:
+ dependencies:
+   http:
+     url: github.com/toitlang/pkg-http
+-    version: ^2.7.2
++    version: ^2.16.0
++  logd:
++    url: github.com/girtsf/toit-logd
++    version: =0.1.3
+diff --git a/src/jaguar.toit b/src/jaguar.toit
+index 1e73b7e..892d0c3 100644
+--- a/src/jaguar.toit
++++ b/src/jaguar.toit
+@@ -20,6 +20,7 @@ import .container-registry
+ import .network
+ import .schedule
+ import .uart
++import .webby
+ 
+ interface Endpoint:
+   run device/Device -> none
+@@ -106,6 +107,8 @@ main arguments:
+   main device endpoints
+ 
+ main device/Device endpoints/List:
++  // Jaguar*: capture print/log/traces before any container starts.
++  install-log-capture
+   try:
+     // We try to start all installed containers, but we catch any
+     // exceptions that might occur from that to avoid blocking
+diff --git a/src/network.toit b/src/network.toit
+index c795702..a8d04ee 100644
+--- a/src/network.toit
++++ b/src/network.toit
+@@ -14,6 +14,7 @@ import system.firmware
+ import uuid show Uuid
+ 
+ import .jaguar
++import .webby
+ 
+ HTTP-PORT        ::= 9000
+ IDENTIFY-PORT    ::= 1990
+@@ -73,6 +74,13 @@ class EndpointHttp implements Endpoint:
+       if not device.config.get JAG-DISABLE-UDP:
+         tasks.add (:: broadcast-identity network device address)
+ 
++      // Jaguar*: answer to <name>.local. A failing responder mustn't take
++      // down the endpoint.
++      tasks.add ::
++        catch --trace:
++          (MdnsResponder network (mdns-hostname device.name) --logger=logger).run
++        (monitor.Latch).get
++
+       Task.group --required=1 tasks
+     finally:
+       if socket: socket.close
+@@ -87,6 +95,7 @@ class EndpointHttp implements Endpoint:
+           "chip": "$device.chip",
+           "sdkVersion": "$system.vm-sdk-version",
+           "address": "$address",
++          "hostname": "$(mdns-hostname device.name).local",
+           "wordSize": $system.BYTES-PER-WORD
+         }
+       }
+@@ -107,12 +116,17 @@ class EndpointHttp implements Endpoint:
+     finally:
+       socket.close
+ 
+-  handle-browser-request name/string request/http.Request writer/http.ResponseWriter -> none:
++  handle-browser-request device/Device request/http.Request writer/http.ResponseWriter -> none:
++    name := device.name
+     path := request.path
++    if path.starts-with "/?": path = "/"
+     if path == "/": path = "index.html"
+     if path.starts-with "/": path = path[1..]
+ 
+-    if path == "index.html":
++    if path == "index.html" and (webby-url device):
++      writer.headers.set "Content-Type" "text/html; charset=utf-8"
++      writer.out.write (bootstrap-page device)
++    else if path == "index.html":
+       uptime ::= Duration --s=(Time.monotonic-us --since-wakeup) / Duration.MICROSECONDS-PER-SECOND
+ 
+       writer.headers.set "Content-Type" "text/html"
+@@ -155,7 +169,9 @@ class EndpointHttp implements Endpoint:
+   serve-incoming-requests socket/tcp.ServerSocket device/Device address/string request-mutex/monitor.Mutex -> none:
+     self := Task.current
+ 
+-    server := http.Server --logger=logger --read-timeout=(Duration --s=3)
++    // Jaguar*: several tasks, so a browser's keep-alive connections and the
++    // /webby/log long-poll don't block each other.
++    server := http.Server --logger=logger --read-timeout=(Duration --s=3) --max-tasks=4
+ 
+     server-task := Task.current
+     server.listen socket:: | request/http.Request writer/http.ResponseWriter |
+@@ -165,21 +181,33 @@ class EndpointHttp implements Endpoint:
+       sdk-version-header := headers.single HEADER-SDK-VERSION
+       path := request.path
+ 
++      // Jaguar*: CORS for the Toit Webby app.
++      if handle-cors device request writer:
++        logger.debug "answered CORS preflight"
++
+       // Handle identification requests before validation, as the caller doesn't know that information yet.
+-      if path == "/identify" and request.method == http.GET:
++      else if path == "/identify" and request.method == http.GET:
+         writer.headers.set "Content-Type" "application/json"
+         result := identity-payload device address
+         writer.headers.set "Content-Length" result.size.stringify
+         writer.out.write result
+ 
+-      else if path == "/" or path.ends-with ".html" or path.ends-with ".css" or path.ends-with ".ico":
+-        handle-browser-request device.name request writer
++      // Jaguar*: toit-logd's endpoints.
++      else if handle-log-request request writer:
++        logger.debug "handled $path"
++
++      else if path == "/" or path.starts-with "/?" or path.ends-with ".html" or path.ends-with ".css" or path.ends-with ".ico":
++        handle-browser-request device request writer
+ 
+       // Validate device ID.
+       else if device-id-header != device-id:
+         logger.info "denied request, header: '$HEADER-DEVICE-ID' was '$device-id-header' not '$device-id'"
+         writer.write-headers http.STATUS-FORBIDDEN --message="Device has id '$device-id', jag is trying to talk to '$device-id-header'"
+ 
++      // Jaguar*: /webby/* routes.
++      else if handle-webby-request request writer:
++        logger.debug "handled $path"
++
+       // Handle pings.
+       else if path == "/ping" and request.method == http.GET:
+         respond-ok writer

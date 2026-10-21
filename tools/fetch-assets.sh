@@ -36,6 +36,14 @@ dl "https://github.com/toitlang/jaguar/releases/download/$JAGUAR_VERSION/assets.
 tar xzf "$TMP/assets.tar.gz" -C "$TMP" assets/jaguar.snapshot
 cp "$TMP/assets/jaguar.snapshot" "$WEB/assets/"
 
+# Jaguar's partition-table overrides (cmd/jag/commands/partitions.go): with this
+# SDK the C3/C6 firmware outgrows the envelopes' default OTA partitions.
+for chip in esp32c3 esp32c6; do
+  echo "partitions $JAGUAR_VERSION $chip"
+  dl "https://raw.githubusercontent.com/toitlang/jaguar/$JAGUAR_VERSION/cmd/jag/commands/partitions/$chip.csv" \
+    "$WEB/assets/partitions-$chip.csv"
+done
+
 echo "esptool-js $ESPTOOL_JS_VERSION"
 dl "https://registry.npmjs.org/esptool-js/-/esptool-js-$ESPTOOL_JS_VERSION.tgz" "$TMP/esptool-js.tgz"
 tar xzf "$TMP/esptool-js.tgz" -C "$TMP" package/bundle.js

@@ -129,11 +129,13 @@ $("flash").addEventListener("click", async () => {
     const envelope = await getEnvelope(envName);
     log("Loading Jaguar runtime…");
     const jaguarSnapshot = new Uint8Array(await (await fetch("./assets/jaguar.snapshot")).arrayBuffer());
+    const partitions = await getPartitionOverride(state.chip.chip);
+    if (partitions) log("Using Jaguar's partition table for " + state.chip.chip + ".", "dim");
     state.deviceId = crypto.randomUUID();
     log("Building firmware image in-browser (name='" + name + "', id=" + state.deviceId + ")…");
     const flashBin = await toit.buildFlashImage(envelope, {
       name, id: state.deviceId, chip: state.chip.chip, wifiSsid: ssid, wifiPassword: pass,
-      uartBaud: UART_BAUD, jaguarSnapshot,
+      uartBaud: UART_BAUD, jaguarSnapshot, partitions,
     });
     log("Flash image built: " + flashBin.length + " bytes. Writing over USB…");
     await flashImage(state.port, flashBin, {
@@ -236,6 +238,15 @@ async function getEnvelope(name) {
     : raw;
   state.envelope = { name, data: toit.slimEnvelope(data) };
   return state.envelope.data;
+}
+
+// Like `jag flash`: some chips need a larger OTA partition than their
+// envelope's default table provides (see fetch-assets.sh). Null if none.
+async function getPartitionOverride(chip) {
+  const resp = await fetch(`./assets/partitions-${chip}.csv`);
+  if (resp.status === 404) return null;
+  if (!resp.ok) throw new Error(`partitions-${chip}.csv: HTTP ${resp.status}`);
+  return new Uint8Array(await resp.arrayBuffer());
 }
 
 function pickFile(accept) {

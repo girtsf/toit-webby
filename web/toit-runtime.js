@@ -118,8 +118,9 @@ export function slimEnvelope(envelope) {
 // Build a complete flashable firmware image (bootloader+partitions+app+config)
 // from a firmware envelope, with Jaguar + the UART endpoint baked in.
 // Mirrors `jag flash` done entirely in wasm. Returns the 0x0 flash blob.
+// `partitions` optionally overrides the envelope's partition table (CSV bytes).
 export async function buildFlashImage(envelope, { name, id, chip = "esp32s3",
-    wifiSsid = "", wifiPassword = "", uartBaud = 921600, jaguarSnapshot } = {}) {
+    wifiSsid = "", wifiPassword = "", uartBaud = 921600, jaguarSnapshot, partitions = null } = {}) {
   const enc = new TextEncoder();
   const jagCfg = enc.encode(JSON.stringify({ id, name, chip, endpointUart: { baud: uartBaud } }));
   const wifiCfg = enc.encode(JSON.stringify({ wifi: { "wifi.ssid": wifiSsid, "wifi.password": wifiPassword } }));
@@ -131,17 +132,19 @@ export async function buildFlashImage(envelope, { name, id, chip = "esp32s3",
     ["tool", "firmware", "-e", "/work/envelope", "container", "install", "-o", "/work/e2",
      "--assets", "/work/assets.bin", "--trigger=boot", "--critical", "jaguar", "/work/jaguar.snapshot"],
     ["tool", "firmware", "-e", "/work/e2", "property", "set", "uuid", id],
-    ["tool", "firmware", "-e", "/work/e2", "extract", "--format=image", "-o", "/work/flash.bin", "--config", "/work/wifi.json"],
+    ["tool", "firmware", "-e", "/work/e2", "extract", "--format=image", "-o", "/work/flash.bin", "--config", "/work/wifi.json",
+     ...(partitions ? ["--partitions", "/work/partitions.csv"] : [])],
   ], {
     files: {
       "/work/jagcfg.json": jagCfg,
       "/work/wifi.json": wifiCfg,
       "/work/envelope": slimEnvelope(envelope),
       "/work/jaguar.snapshot": jaguarSnapshot,
+      ...(partitions ? { "/work/partitions.csv": partitions } : {}),
     },
     outputs: ["/work/flash.bin"],
     execPath: VM_EXE,
   });
-  if (r.rc !== 0) throw new Error("firmware step failed (" + r.failed.join(" ") + "):\n" + r.stderr);
+  if (r.rc !== 0) throw new Error("firmware step failed (" + r.failed.join(" ") + "):\n" + r.stderr + r.stdout);
   return r.out["/work/flash.bin"];
 }

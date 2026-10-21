@@ -4,38 +4,52 @@
 
 const KEYWORDS = new Set((
   "import export as show class interface extends implements mixin with abstract " +
-  "static constructor return if else for while do break continue try finally " +
-  "assert throw and or not null true false this super it in is")
+  "static constructor operator return if else for while break continue try finally " +
+  "assert and or not null true false this super it is")
   .split(" "));
 
+function eatString(stream, state) {
+  const end = state.inString;
+  while (!stream.eol()) {
+    if (stream.match(end)) { state.inString = null; return; }
+    if (stream.next() === "\\") stream.next();
+  }
+  if (end === '"') state.inString = null;  // Single-quoted strings end at the line.
+}
+
 const toitMode = {
-  token(stream) {
-    if (stream.eatSpace()) return null;
-    // line comment
-    if (stream.match("//")) { stream.skipToEnd(); return "comment"; }
-    if (stream.match("/*")) { // block comment
-      while (!stream.eol()) { if (stream.match("*/")) break; stream.next(); }
+  startState: () => ({ inComment: false, inString: null }),
+  token(stream, state) {
+    if (state.inComment) {
+      if (!stream.skipTo("*/")) { stream.skipToEnd(); return "comment"; }
+      stream.match("*/");
+      state.inComment = false;
       return "comment";
     }
-    const ch = stream.peek();
-    if (ch === '"') { // string (with simple interpolation passthrough)
-      stream.next();
-      while (!stream.eol()) { const c = stream.next(); if (c === '"') break; if (c === "\\") stream.next(); }
-      return "string";
-    }
-    if (/[0-9]/.test(ch)) { stream.eatWhile(/[0-9_.xXa-fA-F]/); return "number"; }
-    if (/[A-Za-z_]/.test(ch)) {
-      stream.eatWhile(/[A-Za-z0-9_-]/);
+    if (state.inString) { eatString(stream, state); return "string"; }
+    if (stream.eatSpace()) return null;
+    if (stream.match("//")) { stream.skipToEnd(); return "comment"; }
+    if (stream.match("/*")) { state.inComment = true; return "comment"; }
+    if (stream.match('"""')) { state.inString = '"""'; eatString(stream, state); return "string"; }
+    if (stream.match('"')) { state.inString = '"'; eatString(stream, state); return "string"; }
+    if (stream.match(/^'(\\.|[^'\\])'/)) return "string";
+    if (stream.match(/^(0[xX][0-9a-fA-F_]+|0[bB][01_]+|[0-9][0-9_]*(\.[0-9][0-9_]*)?([eE][+-]?[0-9]+)?)/)) return "number";
+    if (stream.match(/^--[A-Za-z_][A-Za-z0-9_-]*/)) return "attributeName";
+    if (stream.match(/^[A-Za-z_][A-Za-z0-9_]*(-[A-Za-z0-9_]+)*/)) {
       const w = stream.current();
       if (KEYWORDS.has(w)) return "keyword";
-      if (/^[A-Z]/.test(w)) return "typeName";
-      return "variableName";
+      // Toit division needs spaces, so `x/int` and `-> int` are type annotations.
+      if (/^[A-Z]/.test(w) || /(\/|->\s*)$/.test(stream.string.slice(0, stream.start))) return "typeName";
+      // Definitions start at the beginning of a (possibly indented) line.
+      if (stream.string.slice(0, stream.start).trim() === "" && /^(\s[^:]*)?:\s*(\/\/.*)?$/.test(stream.string.slice(stream.pos)))
+        return "variableName.function.definition";
+      return null;
     }
-    if (/[:=<>+\-*/%.&|!?]/.test(ch)) { stream.eatWhile(/[:=<>+\-*/%.&|!?]/); return "operator"; }
+    if (stream.match(/^[:=<>+\-*/%.&|!?^~]+/)) return "operator";
     stream.next();
     return null;
   },
-  languageData: { commentTokens: { line: "//" } },
+  languageData: { commentTokens: { line: "//", block: { open: "/*", close: "*/" } } },
 };
 
 export function createEditor(parent, doc) {
@@ -48,9 +62,12 @@ export function createEditor(parent, doc) {
   upgrade().catch((e) => console.warn("CodeMirror unavailable, using textarea:", e));
 
   async function upgrade() {
+    // codemirror and theme-one-dark import @codemirror/language@^6.0.0; using the
+    // same range yields the same module instance. A second copy (e.g. a pinned
+    // version) makes the theme's highlight style ignore our tokens.
     const [{ EditorView, basicSetup }, { StreamLanguage }, { oneDark }] = await Promise.all([
       import("https://esm.sh/codemirror@6.0.1"),
-      import("https://esm.sh/@codemirror/language@6.10.2"),
+      import("https://esm.sh/@codemirror/language@^6.0.0"),
       import("https://esm.sh/@codemirror/theme-one-dark@6.1.2"),
     ]);
     view = new EditorView({

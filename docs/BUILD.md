@@ -33,6 +33,14 @@ executable-path (`TOIT_EXECUTABLE` env), and it excludes the Linux
 hardware/socket/subprocess drivers from the VM link (their primitive tables are
 weak symbols, so leaving them out is fine for a host-side tool).
 
+Built without `-pthread`, the patch defines `TOIT_NO_THREADS`: the scheduler
+runs processes on the main thread (no `SchedulerThread`, no preemption ticks;
+a process runs until it blocks or yields), the timer event source has no thread
+and is polled by that loop (busy-waiting until the next timer when nothing is
+ready), and `Mutex` tracks its own lock state since emscripten's pthread stubs
+are no-ops. Spawning a thread or waiting on a condition variable is FATAL. So
+neither binary needs `SharedArrayBuffer` or cross-origin isolation.
+
 ## Compiler (single-threaded)
 ```
 mkdir -p build/wasm && cd build/wasm
@@ -45,17 +53,16 @@ emcmake cmake . -DCMAKE_EXE_LINKER_FLAGS="-sMODULARIZE=1 -sEXPORT_ES6=1 \
 emmake make -j toit.compile
 ```
 
-## VM / full `toit` (pthreads — needs COOP/COEP at runtime)
+## VM / full `toit` (single-threaded too)
 ```
-mkdir -p build/wasm-vm && cd build/wasm-vm
+mkdir -p build/wasm-vm/generated && cd build/wasm-vm
 emcmake cmake ../../third_party/toit -DCMAKE_BUILD_TYPE=Release \
-  -DHOST_TOIT=$HOME/.cache/jaguar/<ver>/sdk/bin/toit -DTOIT_GIT_VERSION=<ver> \
-  -DCMAKE_C_FLAGS=-pthread -DCMAKE_CXX_FLAGS=-pthread
-emcmake cmake . -DCMAKE_EXE_LINKER_FLAGS="-pthread -sMODULARIZE=1 -sEXPORT_ES6=1 \
+  -DHOST_TOIT=$HOME/.cache/jaguar/<ver>/sdk/bin/toit -DTOIT_GIT_VERSION=<ver>
+emcmake cmake . -DCMAKE_EXE_LINKER_FLAGS="-sMODULARIZE=1 -sEXPORT_ES6=1 \
   -sENVIRONMENT=web,worker -sFORCE_FILESYSTEM=1 -sINVOKE_RUN=0 -sEXIT_RUNTIME=0 \
   -sEXPORTED_RUNTIME_METHODS=FS,callMain,ENV -sALLOW_MEMORY_GROWTH=1 \
-  -sINITIAL_MEMORY=64MB -sSTACK_SIZE=8MB -sDEFAULT_PTHREAD_STACK_SIZE=1MB \
-  -sPTHREAD_POOL_SIZE=8 --preload-file ../../third_party/toit/lib@/sdk/lib/toit/lib"
+  -sINITIAL_MEMORY=64MB -sSTACK_SIZE=8MB \
+  --preload-file ../../third_party/toit/lib@/sdk/lib/toit/lib"
 emmake make -j toit
 ```
 

@@ -38,6 +38,7 @@ COMMON="-sMODULARIZE=1 -sEXPORT_ES6=1 -sENVIRONMENT=web,worker -sFORCE_FILESYSTE
 
 configure() {  # <build dir> <extra cmake args...>
   local dir=$1; shift
+  mkdir -p "$dir/generated"  # A fresh build dir otherwise fails writing boot snapshots.
   emcmake cmake -S "$SRC" -B "$dir" -DCMAKE_BUILD_TYPE=Release \
     -DHOST_TOIT="$HOST_TOIT" -DTOIT_GIT_VERSION="$TOIT_VERSION" "$@"
 }
@@ -46,9 +47,10 @@ configure "$ROOT/build/wasm" \
   -DCMAKE_EXE_LINKER_FLAGS="$COMMON -sSTACK_SIZE=16MB"
 emmake make -C "$ROOT/build/wasm" -j"$JOBS" toit.compile
 
-configure "$ROOT/build/wasm-vm" -DCMAKE_C_FLAGS=-pthread -DCMAKE_CXX_FLAGS=-pthread \
-  -DCMAKE_EXE_LINKER_FLAGS="-pthread $COMMON -sINITIAL_MEMORY=64MB -sSTACK_SIZE=8MB \
--sDEFAULT_PTHREAD_STACK_SIZE=1MB -sPTHREAD_POOL_SIZE=2"
+# No -pthread: the patch's TOIT_NO_THREADS runs the scheduler on the main
+# thread, so the page needs no cross-origin isolation.
+configure "$ROOT/build/wasm-vm" \
+  -DCMAKE_EXE_LINKER_FLAGS="$COMMON -sINITIAL_MEMORY=64MB -sSTACK_SIZE=8MB"
 emmake make -C "$ROOT/build/wasm-vm" -j"$JOBS" toit
 
 mkdir -p "$ROOT/web/wasm"

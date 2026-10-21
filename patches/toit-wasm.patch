@@ -50,6 +50,82 @@ index 247b3cd..0c6f422 100644
  
  #include <errno.h>
  #include <signal.h>
+diff --git a/src/event_sources/timer.cc b/src/event_sources/timer.cc
+index be28972..e2c1130 100644
+--- a/src/event_sources/timer.cc
++++ b/src/event_sources/timer.cc
+@@ -18,6 +18,8 @@
+ #include "../objects_inline.h"
+ #include "../utils.h"
+ 
++#include <unistd.h>
++
+ namespace toit {
+ 
+ TimerEventSource* TimerEventSource::instance_ = null;
+@@ -29,7 +31,9 @@ TimerEventSource::TimerEventSource()
+     , stop_(false) {
+   ASSERT(instance_ == null);
+   instance_ = this;
++#ifndef TOIT_NO_THREADS
+   spawn();
++#endif
+ }
+ 
+ TimerEventSource::~TimerEventSource() {
+@@ -41,7 +45,9 @@ TimerEventSource::~TimerEventSource() {
+     OS::signal(timer_changed_);
+   }
+ 
++#ifndef TOIT_NO_THREADS
+   join();
++#endif
+ 
+   ASSERT(timers_.is_empty());
+ 
+@@ -97,6 +103,25 @@ void TimerEventSource::on_unregister_resource(Locker& locker, Resource* r) {
+   }
+ }
+ 
++#ifdef TOIT_NO_THREADS
++bool TimerEventSource::poll(bool block) {
++  Locker locker(mutex());
++  if (timers_.is_empty()) return false;
++  if (block) {
++    int64 delay_us = timers_.first()->timeout() - OS::get_system_time();
++    if (delay_us > 0) {
++      Unlocker unlocker(locker);
++      usleep(delay_us);
++    }
++  }
++  int64 time = OS::get_system_time();  // Must match Time.monotonic-us.
++  while (!timers_.is_empty() && timers_.first()->timeout() <= time) {
++    dispatch(locker, timers_.remove_first(), 0);
++  }
++  return true;
++}
++#endif
++
+ void TimerEventSource::entry() {
+   Locker locker(mutex());
+   HeapTagScope scope(ITERATE_CUSTOM_TAGS + EVENT_SOURCE_MALLOC_TAG);
+diff --git a/src/event_sources/timer.h b/src/event_sources/timer.h
+index d4f7e9e..e1a0a14 100644
+--- a/src/event_sources/timer.h
++++ b/src/event_sources/timer.h
+@@ -55,6 +55,12 @@ class TimerEventSource : public EventSource, public Thread {
+ 
+   void arm(Timer* timer, int64_t timeout);
+ 
++#ifdef TOIT_NO_THREADS
++  // Dispatches expired timers. With `block`, first sleeps until the next
++  // timer expires. Returns false if there are no timers.
++  bool poll(bool block);
++#endif
++
+  private:
+   void entry() override;
+ 
 diff --git a/src/flags.h b/src/flags.h
 index 74bfc6b..a3a4639 100644
 --- a/src/flags.h
@@ -145,6 +221,50 @@ index 2d3b7d0..d1af465 100644
  #elif BUILD_64
      !LP64(__builtin_smul,_overflow)((word) a, ((word) b) >> 1, (word*) result);
  #endif
+diff --git a/src/mutex.h b/src/mutex.h
+index 44c8623..a45e7b1 100644
+--- a/src/mutex.h
++++ b/src/mutex.h
+@@ -57,10 +57,18 @@ class Mutex {
+ #else
+     int error = pthread_mutex_lock(&mutex_);
+     if (error != 0) FATAL("mutex lock failed with error %d", error);
++#endif
++#ifdef TOIT_NO_THREADS
++    // The pthread stubs don't track ownership.
++    if (locked_) FATAL("mutex already locked: %s", name_);
++    locked_ = true;
+ #endif
+   }
+ 
+   void unlock() {
++#ifdef TOIT_NO_THREADS
++    locked_ = false;
++#endif
+ #ifdef TOIT_FREERTOS
+     if (xSemaphoreGive(sem_) != pdTRUE) {
+       FATAL("mutex unlock failed");
+@@ -72,7 +80,9 @@ class Mutex {
+   }
+ 
+   bool is_locked() {
+-#ifdef TOIT_FREERTOS
++#ifdef TOIT_NO_THREADS
++    return locked_;
++#elif defined(TOIT_FREERTOS)
+     return xSemaphoreGetMutexHolder(sem_) != null;
+ #else
+     int error = pthread_mutex_trylock(&mutex_);
+@@ -93,6 +103,9 @@ class Mutex {
+ #else
+   pthread_mutex_t mutex_;
+ #endif
++#ifdef TOIT_NO_THREADS
++  bool locked_ = false;
++#endif
+ 
+   friend class ConditionVariable;
+ };
 diff --git a/src/os_linux.cc b/src/os_linux.cc
 index 1d734ec..423a369 100644
 --- a/src/os_linux.cc
@@ -230,10 +350,40 @@ index 1d734ec..423a369 100644
  bool OS::use_virtual_memory(void* addr, uword sz) {
    ASSERT(addr != null);
 diff --git a/src/os_posix.cc b/src/os_posix.cc
-index 05884d1..22f7347 100644
+index 05884d1..310d55d 100644
 --- a/src/os_posix.cc
 +++ b/src/os_posix.cc
-@@ -273,6 +273,8 @@ const char* OS::get_architecture() {
+@@ -67,6 +67,9 @@ class ConditionVariable {
+   }
+ 
+   void wait() {
++#ifdef TOIT_NO_THREADS
++    FATAL("would block forever");
++#endif
+     if (pthread_cond_wait(&cond_, &mutex_->mutex_) != 0) {
+       FATAL("pthread_cond_wait() error");
+     }
+@@ -74,6 +77,9 @@ class ConditionVariable {
+ 
+   bool wait_us(int64 us) {
+     if (us <= 0LL) return false;
++#ifdef TOIT_NO_THREADS
++    FATAL("would block");
++#endif
+ 
+     // TODO: We really should use monotonic time here.
+     struct timespec deadline = { 0, };
+@@ -139,6 +145,9 @@ void Thread::_boot() {
+ }
+ 
+ bool Thread::spawn(int stack_size, int core) {
++#ifdef TOIT_NO_THREADS
++  FATAL("threads not supported");
++#endif
+   int result = pthread_create(reinterpret_cast<pthread_t*>(&handle_), null, &thread_start, void_cast(this));
+   if (result != 0) {
+     FATAL("pthread_create failed");
+@@ -273,6 +282,8 @@ const char* OS::get_architecture() {
    return "x86";
  #elif defined(__riscv) && __riscv_xlen == 64
    return "riscv64";
@@ -333,6 +483,70 @@ index 5817120..a6aef92 100644
  
  #include <errno.h>
  #include <fcntl.h>
+diff --git a/src/scheduler.cc b/src/scheduler.cc
+index 69b4ec0..ce5be98 100644
+--- a/src/scheduler.cc
++++ b/src/scheduler.cc
+@@ -22,6 +22,7 @@
+ #include "process_group.h"
+ #include "scheduler.h"
+ #include "vm.h"
++#include "event_sources/timer.h"
+ 
+ #include  <stdio.h>
+ #include  <signal.h>
+@@ -170,6 +171,33 @@ Scheduler::ExitState Scheduler::launch_program(Locker& locker, Process* process)
+   boot_process_ = process;
+   add_process(locker, process);
+ 
++#ifdef TOIT_NO_THREADS
++  // Act as the only scheduler thread. Preemption ticks are not needed: a
++  // process runs until it blocks or yields.
++  SchedulerThread* thread = _new SchedulerThread(this);
++  threads_.prepend(thread);
++  num_threads_++;
++  while (!has_exit_reason() && num_processes_ > 0) {
++    bool block = ready_count_ == 0;
++    { Unlocker unlock(locker);
++      bool has_timers = TimerEventSource::instance()->poll(block);
++      if (block && !has_timers) FATAL("deadlock: no ready processes and no timers");
++    }
++    if (ready_count_ == 0) continue;
++    Process* process = null;
++    for (int i = 0; i < NUMBER_OF_READY_QUEUES; i++) {
++      ProcessListFromScheduler& ready_queue = ready_queue_[i];
++      if (ready_queue.is_empty()) continue;
++      process = ready_queue.remove_first();
++      ready_count_--;
++      break;
++    }
++    run_process(locker, process, thread);
++  }
++  threads_.remove(thread);
++  num_threads_--;
++  delete thread;
++#else
+   tick_schedule(locker, OS::get_monotonic_time(), true);
+   while (num_processes_ > 0 && num_threads_ > 0) {
+     int64 time = OS::get_monotonic_time();
+@@ -181,6 +209,7 @@ Scheduler::ExitState Scheduler::launch_program(Locker& locker, Process* process)
+       OS::wait_us(has_threads_, delay_us);
+     }
+   }
++#endif
+ 
+   if (!has_exit_reason()) {
+     exit_state_.reason = EXIT_DONE;
+@@ -818,6 +847,9 @@ void Scheduler::wait_for_any_gc_to_complete(Locker& locker, Process* process, Pr
+ }
+ 
+ SchedulerThread* Scheduler::start_thread(Locker& locker) {
++#ifdef TOIT_NO_THREADS
++  return null;
++#endif
+   if (num_threads_ == max_threads_) return null;
+   // On FreeRTOS we start both threads at boot time and then don't start
+   // other threads. This should be enough, and should ensure that allocation
 diff --git a/src/toit.cc b/src/toit.cc
 index e590358..0f03b86 100644
 --- a/src/toit.cc
@@ -374,20 +588,24 @@ index c85b008..d417994 100644
    int frames = backtrace(callstack, 10);
    char** symbols = backtrace_symbols(callstack, frames);
 diff --git a/src/top.h b/src/top.h
-index 25d049f..bdb8920 100644
+index 25d049f..b54e79a 100644
 --- a/src/top.h
 +++ b/src/top.h
-@@ -90,6 +90,9 @@
+@@ -90,6 +90,13 @@
  #else
  #define TOIT_LINUX
  #define TOIT_POSIX
 +#if defined(__EMSCRIPTEN__)
 +#define TOIT_WASM
++#if !defined(__EMSCRIPTEN_PTHREADS__)
++// No OS threads: the scheduler runs processes and timers on the main thread.
++#define TOIT_NO_THREADS
++#endif
 +#endif
  #endif
  
  #if defined(TOIT_DARWIN) + defined(TOIT_LINUX) + defined(TOIT_WINDOWS) + defined(TOIT_ESP32) + defined(TOIT_EC618) > 1
-@@ -100,7 +103,7 @@
+@@ -100,7 +107,7 @@
  
  #if (__WORDSIZE == 64) || __WIN64
  #define BUILD_64 1

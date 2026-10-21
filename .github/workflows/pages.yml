@@ -34,9 +34,23 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
         uses: actions/deploy-pages@v5
+
+  # Exercises the live site in headless Chrome (selftest, app load, flash-image
+  # build, content-hashed URLs); no hardware.
+  smoke:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: npm ci
+        working-directory: tools
+      - run: node smoketest.mjs "${{ needs.deploy.outputs.page_url }}" --versioned
+        working-directory: tools

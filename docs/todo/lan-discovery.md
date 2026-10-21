@@ -1,5 +1,7 @@
 # LAN discovery of already-networked devices
 
+**Update (2026-10-20):** partly done. Jaguar\* answers to `<name>.local` (mDNS responder on the device), and the page connects by name or via the device's own page; the post-flash flow learns the address over serial. Still impossible: listing devices whose name you don't know (browsers can't browse mDNS or receive UDP).
+
 ## Why
 The original ask included detecting devices already running Toit on the local
 network. A Jaguar device broadcasts its identity over UDP (port 1990) and serves

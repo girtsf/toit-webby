@@ -1,5 +1,7 @@
 # Container management UI
 
+**Update (2026-10-20): done over Wi-Fi** (install/list/uninstall/stop in the side panel, `web/jaguar-http.js`). Over USB only install is wired up; list/uninstall over UART remain.
+
 ## Why
 Right now the app only does ephemeral `run` (program runs until it exits). Jaguar
 also supports **installing** named containers that persist across reboots, plus

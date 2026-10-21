@@ -1,5 +1,7 @@
 # Run/flash over Wi-Fi (HTTP transport)
 
+**Update (2026-10-20): done** for Chromium via Jaguar\* (CORS for the app's origin) + Chrome's Local Network Access (exempts `*.local`/private IPs from mixed-content blocking). See the README's "Wi-Fi: Jaguar\*" section and `web/jaguar-http.js`.
+
 ## Why
 Today everything goes over USB (serial). The device also exposes the full Jaguar
 API over HTTP once it's on Wi-Fi, so in principle you could push code without a

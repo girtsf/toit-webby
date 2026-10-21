@@ -4,7 +4,8 @@ Backlog for Toit Webby. Each file is one idea: why, a sketch of the approach,
 open questions, and pointers into the code. Not committed work — a menu.
 
 Current state (for context): compile + firmware-build + run all work in-browser
-over Web Serial on a real ESP32-S3 (Chromium-family browsers). See `../../README.md`.
+over Web Serial on a real ESP32-S3 (Chromium-family browsers), and over Wi-Fi
+with Jaguar\* (run, install, containers, live output, decoded stack traces). See `../../README.md`.
 
 | Idea | One-liner |
 |------|-----------|

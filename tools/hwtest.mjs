@@ -1,12 +1,17 @@
 // End-to-end on hardware through the real UI, in headless Chrome-for-Testing:
 // USB connect -> flash Jaguar* with Wi-Fi -> wait for the network over serial
 // -> connect over Wi-Fi -> run -> install the web server example and fetch it.
-// Needs the serial policy from the toit-webby-browser-constraints notes (all
-// ports allowed for http://localhost:8777) and `python3 web/serve.py 8777`.
-// Usage: WIFI_SSID=... WIFI_PASS=... node hwtest.mjs [device-name] [--no-flash]
+// Needs a Chrome-for-Testing policy allowing serial for the app's origin
+// (/etc/opt/chrome_for_testing/policies/managed/*.json:
+// {"DefaultSerialGuardSetting":3,"SerialAllowAllPortsForUrls":[<origin>]}),
+// as headless Chrome can't show the port chooser. APP defaults to a local
+// `python3 web/serve.py 8777`; APP=https://girtsf.github.io/toit-webby/ tests
+// the hosted site (headless also can't show the Local Network Access prompt,
+// so it is granted up front).
+// Usage: [APP=...] WIFI_SSID=... WIFI_PASS=... node hwtest.mjs [device-name] [--no-flash]
 import puppeteer from "puppeteer";
 
-const APP = "http://localhost:8777/";
+const APP = process.env.APP || "http://localhost:8777/";
 const NAME = process.argv[2] || "webby-s3";
 const FLASH = !process.argv.includes("--no-flash");
 
@@ -14,6 +19,10 @@ const browser = await puppeteer.launch({ headless: "new", args: ["--no-sandbox"]
 const t0 = Date.now();
 const stamp = () => ((Date.now() - t0) / 1000).toFixed(1).padStart(6) + "s";
 try {
+  const cdp = await browser.target().createCDPSession();
+  await cdp.send("Browser.setPermission", {
+    permission: { name: "local-network" }, setting: "granted", origin: new URL(APP).origin,
+  });
   const page = await browser.newPage();
   page.on("pageerror", (e) => console.log("pageerror:", e.message));
   // No port chooser in headless: hand out the CP210x port.

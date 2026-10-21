@@ -6,6 +6,8 @@
 #   $JAGUAR_VERSION + patches/jaguar-webby.patch + device/*.toit.
 # - web/assets/decode.snapshot: decoder/decode.toit + the SDK's trace decoding
 #   sources (tools/{mirror,snapshot,system-message_}.toit at $TOIT_VERSION).
+# - web/assets/flash-parts.snapshot: flasher/flash-parts.toit, compiled inside
+#   the SDK's tools/ at $TOIT_VERSION (it reuses tools/firmware.toit).
 #
 # The Jaguar checkout in build/jaguar-webby is reset on every run. To change
 # the patch, edit there, then:
@@ -54,3 +56,19 @@ cp "$ROOT"/decoder/{decode.toit,package.yaml,package.lock} "$DEC/"
 (cd "$DEC" && "$TOIT" pkg install >/dev/null)
 "$TOIT" compile -O2 --snapshot -o "$ASSETS/decode.snapshot" "$DEC/decode.toit"
 echo "decoder -> $ASSETS/decode.snapshot"
+
+# Flasher: `toit tool firmware flash` without esptool.
+FL=$ROOT/build/toit-tools
+if [[ ! -d "$FL/.git" ]]; then
+  git -c advice.detachedHead=false clone -q --depth 1 --branch "$TOIT_VERSION" \
+    --filter=blob:none --sparse https://github.com/toitlang/toit "$FL"
+  git -C "$FL" sparse-checkout set tools system/extensions
+fi
+git -C "$FL" fetch -q --depth 1 origin tag "$TOIT_VERSION"
+git -C "$FL" checkout -q -f "$TOIT_VERSION"
+git -C "$FL" clean -fdq -e .packages
+cp "$ROOT/flasher/flash-parts.toit" "$FL/tools/"
+(cd "$FL/tools" && "$TOIT" pkg install >/dev/null)
+"$TOIT" analyze "$FL/tools/flash-parts.toit"
+"$TOIT" compile -O2 --snapshot -o "$ASSETS/flash-parts.snapshot" "$FL/tools/flash-parts.toit"
+echo "flasher -> $ASSETS/flash-parts.snapshot"

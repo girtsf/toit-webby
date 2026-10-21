@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Build Jaguar* and the trace decoder
+      - name: Build Jaguar*, the trace decoder and the flasher
         run: tools/build-snapshots.sh
       - name: Fetch assets
         run: tools/fetch-assets.sh

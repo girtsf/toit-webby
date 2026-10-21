@@ -266,19 +266,39 @@ respond-json writer/http.ResponseWriter value/any -> none:
   writer.out.write bytes
 
 /**
-The page served at "/": sends the browser to the web app, pointed back at this
-  device. The app runs on HTTPS (its compiler/VM needs cross-origin isolation,
-  which plain-HTTP pages can't get) and talks to the device from there.
+The page served at "/": runs the web app on this page, so all its calls to
+  the device are same-origin (no mixed content, Local Network Access or CORS;
+  Firefox and Safari block HTTPS pages from calling plain-HTTP devices). Loads the app's index.html
+  from its URL with a <base> pointing there, so its scripts and wasm come from
+  there too. A plain-HTTP page gets no Web Serial: Wi-Fi only. "?app" goes to
+  the app's own URL instead (USB).
 */
 bootstrap-page device/Device -> string:
   app-url := webby-url device
   uptime ::= Duration --s=(Time.monotonic-us --since-wakeup) / Duration.MICROSECONDS-PER-SECOND
   app-link := app-url
-      ? """<p><a id="open" href="$app-url">Open in Toit Webby</a></p>
+      ? """<p id="msg">Loading Toit Webby&hellip;</p>
+          <p><a id="open" href="$app-url">Open on $(url-origin app-url) (USB)</a></p>
           <script>
+            const app = "$app-url";
+            const device = "#device=" + encodeURIComponent(location.host);
             const a = document.getElementById("open");
-            a.href = "$app-url#device=" + encodeURIComponent(location.host);
-            if (!location.search.includes("stay")) location.replace(a.href);
+            a.href = app + device;
+            if (location.search.includes("app")) location.replace(a.href);
+            else (async () => {
+              try {
+                const resp = await fetch(app, { cache: "no-cache" });
+                if (!resp.ok) throw new Error("HTTP " + resp.status);
+                const base = '<base href="' + new URL(".", resp.url).href + '">';
+                const html = (await resp.text()).replace(/<head>/i, "<head>" + base);
+                history.replaceState(null, "", device);
+                document.open();
+                document.write(html);
+                document.close();
+              } catch (e) {
+                document.getElementById("msg").textContent = "Couldn't load " + app + ": " + e.message;
+              }
+            })();
           </script>"""
       : "<p>No Toit Webby URL configured.</p>"
   return """

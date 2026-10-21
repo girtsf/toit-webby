@@ -11,6 +11,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                       ".mjs": "text/javascript", ".data": "application/octet-stream"}
     def end_headers(self):
         self.send_header("Cache-Control", "no-store")
+        # Like GitHub Pages: lets a device-served page load the app from here.
+        self.send_header("Access-Control-Allow-Origin", "*")
         super().end_headers()
     def log_message(self, *a): pass
 

@@ -20,7 +20,8 @@ const UART_BAUD = 921600;
 // Jaguar* (Jaguar + mDNS, CORS, print capture; built by tools/build-snapshots.sh).
 const JAGUAR_SNAPSHOT = "./assets/jaguar-webby.snapshot";
 // Baked into the firmware: the device's page at "/" sends browsers here.
-const APP_URL = new URL(".", location.href).href;
+// (A device-served page sets <base> to the app, see device/webby.toit.)
+const APP_URL = new URL(".", document.baseURI).href;
 
 const $ = (id) => document.getElementById(id);
 const state = {
@@ -572,7 +573,9 @@ toit.onMemory((label, { size, touched }) => {
 // ---- Init ----------------------------------------------------------------
 if (!isSupported()) {
   setStatus("Web Serial not supported");
-  log("This browser doesn't support Web Serial (USB). Use Chrome, Edge, or Opera over HTTPS/localhost.", "err");
+  log(isSecureContext
+    ? "This browser doesn't support Web Serial (USB). Use Chrome, Edge, or Opera over HTTPS/localhost."
+    : "No USB on a plain-HTTP page (this device's own page): Wi-Fi only.", isSecureContext ? "err" : "dim");
   enable("connect", false);
 } else {
   setStatus("ready");
@@ -584,7 +587,7 @@ if (!isSupported()) {
   try { saved = localStorage.getItem("webby.wifiHost"); } catch (_) {}
   $("wifi-host").value = fromDevice || saved || "";
   if (fromDevice) {
-    history.replaceState(null, "", location.pathname + location.search);
+    history.replaceState(null, "", location.href.split("#")[0]);
     connectWifi(fromDevice);
   }
 }

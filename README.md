@@ -59,14 +59,20 @@ The page flashes **Jaguar\***: upstream Jaguar (version pinned in `versions.env`
   container are buffered and served on `GET /logd` (logd's own monitor works
   against `:9000` too);
 - `/webby/containers` (installed + running) and `/webby/stop`;
-- at `/`, a page that sends the browser to the app with `#device=<host>`.
+- at `/`, the app itself: a small page that fetches the app's `index.html`
+  and writes it with a `<base>` pointing at the app's URL, so scripts and wasm
+  come from there and every device call is same-origin (`?app` goes to the
+  app's URL instead).
 
-How the HTTPS page reaches an HTTP device: Chrome's [Local Network
-Access](https://developer.chrome.com/blog/local-network-access) exempts
-`*.local` names and private IPs from mixed-content blocking, behind a one-time
-"allow access to devices on your local network" prompt. The page stays on HTTPS
-on purpose: the device's `http://` origin is not a secure context, so no Web
-Serial there. Hence the device's page only redirects.
+Two ways to reach a device over Wi-Fi:
+- From the HTTPS app: Chrome's [Local Network
+  Access](https://developer.chrome.com/blog/local-network-access) exempts
+  `*.local` names and private IPs from mixed-content blocking, behind a
+  one-time "allow access to devices on your local network" prompt. Firefox
+  (tested 158) blocks it as mixed content; Safari has no such exemption.
+- From the device's page (`http://<name>.local:9000/`): no mixed content, LNA
+  or CORS, so any browser (tested Chrome 155, Firefox 158). Not a secure
+  context, so no Web Serial there: Wi-Fi only.
 
 Stack traces: logd captures the encoded system message; the page decodes it
 with `assets/decode.snapshot` (`decoder/decode.toit`, built from the SDK's own
@@ -84,7 +90,11 @@ cp ../../device/host_run.toit src/
 node ../../tools/wifitest.mjs http://localhost:8777/ webby-host.local:9123
 ```
 
-Caveats: Chromium only (Local Network Access, Web Serial). The device HTTP API
+`DEVICE_PAGE=1` makes wifitest open the device's page; `BROWSER=firefox` runs
+it in Firefox (see the script). For the device page, serve the app on a LAN
+address, not localhost (a private page loading from loopback needs LNA).
+
+Caveats: USB needs Chromium (Web Serial). The device HTTP API
 has no authentication beyond CORS for one origin (like Jaguar itself: trusted
 networks only). Opening/closing the USB port resets CP210x boards.
 

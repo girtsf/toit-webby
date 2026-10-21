@@ -48,7 +48,7 @@ function loadBinaries(name) {
 // page responsive while the tool runs.
 async function runTool(name, steps, { files = {}, outputs = [], execPath } = {}) {
   const { wasm, data } = await loadBinaries(name);
-  const worker = new Worker(appUrl("tool-worker.js"), { type: "module" });
+  const worker = newModuleWorker(appUrl("tool-worker.js"));
   try {
     return await new Promise((resolve, reject) => {
       worker.onmessage = (e) => {
@@ -62,6 +62,14 @@ async function runTool(name, steps, { files = {}, outputs = [], execPath } = {})
   } finally {
     worker.terminate();
   }
+}
+
+// Workers must be same-origin with the page; when a device serves the page
+// (device/webby.toit), start the app's worker through a blob that imports it.
+function newModuleWorker(url) {
+  if (new URL(url).origin === location.origin) return new Worker(url, { type: "module" });
+  const shim = URL.createObjectURL(new Blob([`import ${JSON.stringify(url)};`], { type: "text/javascript" }));
+  return new Worker(shim, { type: "module" });
 }
 
 const COMPILE_EXE = "/sdk/lib/toit/bin/toit.compile";

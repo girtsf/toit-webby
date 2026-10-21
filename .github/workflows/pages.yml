@@ -25,6 +25,8 @@ jobs:
         run: tools/fetch-assets.sh
         env:
           GITHUB_TOKEN: ${{ github.token }}
+      - name: Content-hash URLs
+        run: node tools/stamp-urls.mjs web
       - uses: actions/upload-pages-artifact@v5
         with:
           path: web

@@ -5,12 +5,18 @@
 const ROOT = new URL("./", import.meta.url).href;
 let sizes = null;
 
-// Fetches `url` (relative to the app root) as a Uint8Array.
+// The URL to load `path` (relative to the app root, or absolute) from. On a
+// deploy, tools/stamp-urls.mjs puts an import map into the pages that maps each
+// file to `<file>?v=<content hash>`, so a page never mixes cached old files
+// with new ones. Locally the map is empty.
+export const appUrl = (path) => import.meta.resolve(new URL(path, ROOT).href);
+
+// Fetches `url` (relative to the app root, or absolute) as a Uint8Array.
 // `onProgress(loaded, total)`; total is null if unknown.
 export async function fetchBytes(url, onProgress) {
-  sizes ??= fetch(ROOT + "sizes.json").then((r) => (r.ok ? r.json() : {}));
+  sizes ??= fetch(appUrl("sizes.json")).then((r) => (r.ok ? r.json() : {}));
   const abs = new URL(url, ROOT).href;
-  const resp = await fetch(abs);
+  const resp = await fetch(appUrl(abs));
   if (!resp.ok) throw new Error(url + ": HTTP " + resp.status);
   const len = resp.headers.get("content-encoding") ? null : Number(resp.headers.get("content-length")) || null;
   const total = (await sizes)[abs.slice(ROOT.length)] ?? len;

@@ -2,7 +2,7 @@
 // code on it, entirely in the browser. Code goes over USB (Jaguar's UART
 // protocol) or over Wi-Fi (Jaguar*'s HTTP API, see jaguar-http.js).
 import * as toit from "./toit-runtime.js";
-import { fetchBytes, mb } from "./fetch-progress.js";
+import { appUrl, fetchBytes, mb } from "./fetch-progress.js";
 import { requestPort, detectChip, flashImage, WebSerialTransport, isSupported } from "./web-serial.js";
 import { JaguarUart } from "./jaguar-uart.js";
 import { JaguarHttp, mdnsHostname } from "./jaguar-http.js";
@@ -108,7 +108,7 @@ let envelopeNames = null;
 // matches "esp32s3" and "esp32s3-*", but not "esp32s3x").
 async function populateEnvelopes(chip) {
   if (!envelopeNames) {
-    const resp = await fetch("./assets/envelopes.json");
+    const resp = await fetch(appUrl("assets/envelopes.json"));
     if (!resp.ok) throw new Error("envelopes.json: HTTP " + resp.status);
     envelopeNames = await resp.json();
   }
@@ -137,7 +137,7 @@ $("flash").addEventListener("click", async () => {
     log("Fetching firmware envelope '" + envName + "'…");
     const envelope = await getEnvelope(envName);
     log("Loading Jaguar* runtime…");
-    const resp = await fetch(JAGUAR_SNAPSHOT);
+    const resp = await fetch(appUrl(JAGUAR_SNAPSHOT));
     if (!resp.ok) throw new Error(JAGUAR_SNAPSHOT + ": HTTP " + resp.status);
     const jaguarSnapshot = new Uint8Array(await resp.arrayBuffer());
     const partitions = await getPartitionOverride(state.chip.chip);
@@ -537,7 +537,7 @@ async function getEnvelope(name) {
 // Like `jag flash`: some chips need a larger OTA partition than their
 // envelope's default table provides (see fetch-assets.sh). Null if none.
 async function getPartitionOverride(chip) {
-  const resp = await fetch(`./assets/partitions-${chip}.csv`);
+  const resp = await fetch(appUrl(`assets/partitions-${chip}.csv`));
   if (resp.status === 404) return null;
   if (!resp.ok) throw new Error(`partitions-${chip}.csv: HTTP ${resp.status}`);
   return new Uint8Array(await resp.arrayBuffer());

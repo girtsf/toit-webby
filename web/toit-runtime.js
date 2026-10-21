@@ -8,9 +8,7 @@
 //   toit.js/.wasm/.data           (full CLI/VM; single-threaded too)
 // The SDK core library is baked into each .data (preloaded at /sdk/lib/toit/lib).
 
-import { fetchBytes } from "./fetch-progress.js";
-
-const WASM_BASE = new URL("./wasm/", import.meta.url).href;
+import { appUrl, fetchBytes } from "./fetch-progress.js";
 
 // `fn(label, loaded, total)` is called while wasm binaries download.
 let progressFn = null;
@@ -50,7 +48,7 @@ function loadBinaries(name) {
 // page responsive while the tool runs.
 async function runTool(name, steps, { files = {}, outputs = [], execPath } = {}) {
   const { wasm, data } = await loadBinaries(name);
-  const worker = new Worker(new URL("./tool-worker.js", import.meta.url), { type: "module" });
+  const worker = new Worker(appUrl("tool-worker.js"), { type: "module" });
   try {
     return await new Promise((resolve, reject) => {
       worker.onmessage = (e) => {
@@ -59,7 +57,7 @@ async function runTool(name, steps, { files = {}, outputs = [], execPath } = {})
         resolve(e.data);
       };
       worker.onerror = (e) => reject(new Error("tool worker: " + (e.message || "failed to start")));
-      worker.postMessage({ url: `${WASM_BASE}${name}.js`, steps, files, outputs, execPath, wasm, data });
+      worker.postMessage({ url: appUrl(`wasm/${name}.js`), steps, files, outputs, execPath, wasm, data });
     });
   } finally {
     worker.terminate();

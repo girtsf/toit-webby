@@ -115,8 +115,10 @@ python3 serve.py 8000      # static server with wasm MIME type, no caching
    the side panel.
 
 Deploying to GitHub Pages: `.github/workflows/pages.yml` runs
-`tools/fetch-assets.sh` and deploys `web/` as a Pages artifact (set Pages source
-to "GitHub Actions"). No special headers are needed (`coi-serviceworker.js` only
+`tools/fetch-assets.sh`, then `tools/stamp-urls.mjs` (an import map of
+content-hashed URLs, so a page load never mixes cached old and new files under
+Pages' 10-minute caching), and deploys `web/` as a Pages artifact (set Pages
+source to "GitHub Actions"). No special headers are needed (`coi-serviceworker.js` only
 retires the cross-origin isolation shim older versions installed).
 
 Binaries are not in git. Upstream ones (all ESP32 envelopes, esptool-js) are

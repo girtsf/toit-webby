@@ -63,6 +63,57 @@ index 74bfc6b..a3a4639 100644
  #define _NO_FORK true
  #else
  #define _NO_FORK false
+diff --git a/src/flash_registry_posix.cc b/src/flash_registry_posix.cc
+index b128782..c5831ae 100644
+--- a/src/flash_registry_posix.cc
++++ b/src/flash_registry_posix.cc
+@@ -44,6 +44,13 @@ static long pagesize = 0;
+ static word dirty_start = INT32_MAX;
+ static word dirty_end = 0;
+ 
++#ifdef TOIT_WASM
++// emscripten's mmap allocates and zeroes the whole range, touching all of it.
++// Use (lazily committed, already zero) reserved memory instead and keep it
++// across main() calls on the same instance, re-zeroing only what was written.
++static void* wasm_allocations = null;
++#endif
++
+ static bool is_dirty() {
+   return dirty_start < dirty_end;
+ }
+@@ -87,6 +94,15 @@ void FlashRegistry::set_up() {
+   // We use mmap here instead of regular allocation because this is emulating
+   // the flash on the device so we don't want it to show up in heap accounting.
+   allocations_mmap_size = allocations_size() + padding;
++#ifdef TOIT_WASM
++  if (fd < 0) {
++    if (wasm_allocations == null) {
++      wasm_allocations = OS::grab_virtual_memory(null, allocations_mmap_size);
++      if (wasm_allocations == null) wasm_allocations = MAP_FAILED;
++    }
++    allocations_mmap = wasm_allocations;
++  } else
++#endif
+   allocations_mmap = mmap(null, allocations_mmap_size, PROT_READ | PROT_WRITE, flags, fd, 0);
+   allocations_memory_ = Utils::round_up(static_cast<uint8*>(allocations_mmap), FLASH_PAGE_SIZE);
+ 
+@@ -106,6 +122,16 @@ void FlashRegistry::set_up() {
+ }
+ 
+ void FlashRegistry::tear_down() {
++#ifdef TOIT_WASM
++  if (allocations_mmap == wasm_allocations) {
++    if (is_dirty()) memset(allocations_memory_ + dirty_start, 0, dirty_end - dirty_start);
++    dirty_start = INT32_MAX;
++    dirty_end = 0;
++    allocations_memory_ = null;
++    allocations_mmap = null;
++    return;
++  }
++#endif
+   allocations_memory_ = null;
+   if (munmap(allocations_mmap, allocations_mmap_size) != 0) {
+     perror("FlashRegistry::tear_down/munmap");
 diff --git a/src/interpreter_run.cc b/src/interpreter_run.cc
 index 2d3b7d0..d1af465 100644
 --- a/src/interpreter_run.cc
@@ -95,7 +146,7 @@ index 2d3b7d0..d1af465 100644
      !LP64(__builtin_smul,_overflow)((word) a, ((word) b) >> 1, (word*) result);
  #endif
 diff --git a/src/os_linux.cc b/src/os_linux.cc
-index 1d734ec..fd39e6c 100644
+index 1d734ec..423a369 100644
 --- a/src/os_linux.cc
 +++ b/src/os_linux.cc
 @@ -34,6 +34,14 @@ namespace toit {
@@ -113,6 +164,71 @@ index 1d734ec..fd39e6c 100644
    int nb_written = readlink("/proc/self/exe", path, PATH_MAX - 1);
    if (nb_written == -1) {
      FATAL("failure reading executable path: %d", errno);
+@@ -43,13 +51,56 @@ char* OS::get_executable_path() {
+ }
+ 
+ int OS::num_cores() {
++#ifdef TOIT_WASM
++  // Every thread is a web worker with its own JS heap, and the tool runs are
++  // short: one scheduler thread is plenty.
++  return 1;
++#else
+   return get_nprocs();
++#endif
+ }
+ 
+ void OS::free_block(ProgramBlock* block) {
+   free_pages(void_cast(block), TOIT_PAGE_SIZE);
+ }
+ 
++#ifdef TOIT_WASM
++// Wasm has no virtual memory: emscripten's mmap allocates and zeroes the whole
++// range, so reserving the 512MB heap up front would touch 512MB. Take ranges
++// straight from sbrk instead. Memory above the break has never been used (the
++// allocator is built with MORECORE_CANNOT_TRIM), so it is already zero, and
++// the browser only commits pages once they are touched. sbrk can't give memory
++// back, so ungrabbed ranges are kept and handed out again (zeroed) when main
++// runs again on the same instance.
++static struct { void* address; uword size; } ungrabbed[4];
++
++void* OS::grab_virtual_memory(void* address, uword size) {
++  uword page = getpagesize();
++  size = Utils::round_up(size, page);
++  for (auto& range : ungrabbed) {
++    if (range.address != null && range.size == size) {
++      void* result = range.address;
++      range.address = null;
++      memset(result, 0, size);
++      return result;
++    }
++  }
++  void* result = sbrk(size + page);
++  if (result == reinterpret_cast<void*>(-1)) return null;
++  return reinterpret_cast<void*>(Utils::round_up(reinterpret_cast<uword>(result), page));
++}
++
++void OS::ungrab_virtual_memory(void* address, uword size) {
++  size = Utils::round_up(size, getpagesize());
++  for (auto& range : ungrabbed) {
++    if (range.address == null) {
++      range.address = address;
++      range.size = size;
++      return;
++    }
++  }
++}
++#else
+ void* OS::grab_virtual_memory(void* address, uword size) {
+   size = Utils::round_up(size, getpagesize());
+   void* result = mmap(address, size,
+@@ -69,6 +120,7 @@ void OS::ungrab_virtual_memory(void* address, uword size) {
+     }
+   }
+ }
++#endif
+ 
+ bool OS::use_virtual_memory(void* addr, uword sz) {
+   ASSERT(addr != null);
 diff --git a/src/os_posix.cc b/src/os_posix.cc
 index 05884d1..22f7347 100644
 --- a/src/os_posix.cc
@@ -217,6 +333,24 @@ index 5817120..a6aef92 100644
  
  #include <errno.h>
  #include <fcntl.h>
+diff --git a/src/toit.cc b/src/toit.cc
+index e590358..0f03b86 100644
+--- a/src/toit.cc
++++ b/src/toit.cc
+@@ -83,7 +83,13 @@ int main(int argc, char **argv) {
+     exit_state = run_program(null, toit_bundle, &argv[1]);
+   }
+ 
++#ifdef TOIT_WASM
++  // The web app calls main repeatedly on one instance, so undo set_up fully
++  // (this includes GcMetadata::tear_down).
++  ObjectMemory::tear_down();
++#else
+   GcMetadata::tear_down();
++#endif
+   OS::tear_down();
+   FlashRegistry::tear_down();
+   return exit_state;
 diff --git a/src/top.cc b/src/top.cc
 index c85b008..d417994 100644
 --- a/src/top.cc

@@ -33,7 +33,7 @@ if [[ -z "${HOST_TOIT:-}" ]]; then
 fi
 
 COMMON="-sMODULARIZE=1 -sEXPORT_ES6=1 -sENVIRONMENT=web,worker -sFORCE_FILESYSTEM=1 \
--sINVOKE_RUN=0 -sEXIT_RUNTIME=0 -sEXPORTED_RUNTIME_METHODS=FS,callMain,ENV -sALLOW_MEMORY_GROWTH=1 \
+-sINVOKE_RUN=0 -sEXIT_RUNTIME=0 -sEXPORTED_RUNTIME_METHODS=FS,callMain,ENV,HEAPU8 -sALLOW_MEMORY_GROWTH=1 \
 --preload-file $SRC/lib@/sdk/lib/toit/lib"
 
 configure() {  # <build dir> <extra cmake args...>
@@ -48,7 +48,7 @@ emmake make -C "$ROOT/build/wasm" -j"$JOBS" toit.compile
 
 configure "$ROOT/build/wasm-vm" -DCMAKE_C_FLAGS=-pthread -DCMAKE_CXX_FLAGS=-pthread \
   -DCMAKE_EXE_LINKER_FLAGS="-pthread $COMMON -sINITIAL_MEMORY=64MB -sSTACK_SIZE=8MB \
--sDEFAULT_PTHREAD_STACK_SIZE=1MB -sPTHREAD_POOL_SIZE=8"
+-sDEFAULT_PTHREAD_STACK_SIZE=1MB -sPTHREAD_POOL_SIZE=2"
 emmake make -C "$ROOT/build/wasm-vm" -j"$JOBS" toit
 
 mkdir -p "$ROOT/web/wasm"

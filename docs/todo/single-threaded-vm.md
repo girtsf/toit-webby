@@ -22,6 +22,17 @@ could serve a plain static page with no service worker and no special headers.
    runtime. A one-shot run may only need the main thread to do bounded work —
    worth probing how many threads the scheduler actually spawns for these.
 
+## Findings (2026-10-20)
+- A tool run uses 3 threads: main (blocked in `run_boot_program`), one
+  `SchedulerThread`, and the `Timer` event source. With `OS::num_cores()`
+  forced to 1 under `TOIT_WASM`, `PTHREAD_POOL_SIZE=2` works; 1 deadlocks.
+- Each pthread worker costs only ~3-4 MB, so going fully single-threaded saves
+  ~7 MB. The real payoff would be dropping SharedArrayBuffer/COOP/COEP.
+- Shim sketch: under `TOIT_WASM`, implement `Thread`/`Mutex`/`ConditionVariable`
+  (`os_posix.cc`) cooperatively, either on emscripten fibers (needs Asyncify:
+  code size + speed cost) or by running the scheduler loop on the main thread
+  and polling timers when idle.
+
 ## Open questions
 - Does a tool run genuinely require concurrency, or can `Thread::spawn` run the
   body synchronously and return? (Try stubbing it and see what breaks.)

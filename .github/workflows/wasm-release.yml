@@ -30,6 +30,8 @@ jobs:
         with:
           name: toit-wasm
           path: build/toit-wasm.tar.gz
+      # toit.wasm embeds absolute source paths (debug info of its bundled tool
+      # snapshot), so it only matches a release built at the same path.
       - name: Compare with the release
         env:
           GH_TOKEN: ${{ github.token }}

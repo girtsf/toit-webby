@@ -89,6 +89,23 @@ export async function snapshotToImage(snapshot, { wordSize = 4 } = {}) {
   return r.out["/work/out.image"];
 }
 
+// Decodes a base64 system message from a device (e.g. the stack trace of an
+// uncaught exception), like `jag decode`. If one of `snapshots` is the program
+// that sent it, the trace gets method names and source positions. Runs
+// assets/decode.snapshot (see decoder/decode.toit): the SDK's `toit decode`
+// needs host pipes, which the wasm VM lacks.
+let decoderSnapshot = null;
+export async function decodeSystemMessage(message, snapshots = []) {
+  decoderSnapshot ??= fetchBytes("assets/decode.snapshot").catch((e) => { decoderSnapshot = null; throw e; });
+  const files = { "/work/decode.snapshot": await decoderSnapshot };
+  snapshots.forEach((s, i) => { files[`/work/p${i}.snapshot`] = s; });
+  const r = await runTool("toit",
+    [["/work/decode.snapshot", message, ...snapshots.map((_, i) => `/work/p${i}.snapshot`)]],
+    { files, execPath: VM_EXE });
+  if (r.rc !== 0) throw new Error("decode failed:\n" + (r.stderr || r.stdout));
+  return r.stdout;
+}
+
 // One-shot: Toit source -> installable image.
 export async function buildImage(source) {
   return snapshotToImage(await compile(source));
@@ -119,10 +136,13 @@ export function slimEnvelope(envelope) {
 // from a firmware envelope, with Jaguar + the UART endpoint baked in.
 // Mirrors `jag flash` done entirely in wasm. Returns the 0x0 flash blob.
 // `partitions` optionally overrides the envelope's partition table (CSV bytes).
+// `webbyUrl` is the app's URL, for Jaguar* (its bootstrap page and CORS).
 export async function buildFlashImage(envelope, { name, id, chip = "esp32s3",
-    wifiSsid = "", wifiPassword = "", uartBaud = 921600, jaguarSnapshot, partitions = null } = {}) {
+    wifiSsid = "", wifiPassword = "", uartBaud = 921600, jaguarSnapshot, partitions = null,
+    webbyUrl = null } = {}) {
   const enc = new TextEncoder();
-  const jagCfg = enc.encode(JSON.stringify({ id, name, chip, endpointUart: { baud: uartBaud } }));
+  const jagCfg = enc.encode(JSON.stringify({ id, name, chip, endpointUart: { baud: uartBaud },
+    ...(webbyUrl ? { webby: { url: webbyUrl } } : {}) }));
   const wifiCfg = enc.encode(JSON.stringify({ wifi: { "wifi.ssid": wifiSsid, "wifi.password": wifiPassword } }));
 
   // All steps run on one VM instance; intermediate files stay in its MEMFS.

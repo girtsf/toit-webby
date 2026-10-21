@@ -53,24 +53,44 @@
   .toolbar { padding: 8px 16px; border-bottom: 1px solid var(--border); display: flex; gap: 10px; align-items: center; }
   .toolbar button { width: auto; margin: 0; }
   .toolbar .label { font-size: 12px; color: var(--dim); }
+  .toolbar select, .toolbar input { width: auto; padding: 5px 8px; }
+  .toolbar .spacer { flex: 1; }
+  .toolbar #run { white-space: nowrap; }
+  .hint a { color: var(--accent); }
+  .row { display: flex; gap: 8px; }
+  .row button { width: auto; margin-top: 0; }
+  button.small { width: auto; margin: 0; padding: 3px 8px; font-size: 12px; }
+  #wifi-info { margin-top: 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px;
+               font-size: 12px; display: grid; gap: 2px; }
+  #wifi-info > div { display: grid; grid-template-columns: 64px 1fr; gap: 8px; }
+  #wifi-info > div > span:first-child { color: var(--dim); }
+  #wifi-info > div > span:last-child { overflow-wrap: anywhere; }
+  #netbanner { margin-top: 12px; padding: 10px; border: 1px solid var(--ok); border-radius: 6px;
+               font-size: 12px; overflow-wrap: anywhere; }
+  #netbanner a { color: var(--accent); }
+  [hidden] { display: none !important; }
+  .container { display: flex; gap: 6px; align-items: center; padding: 6px 0;
+               border-bottom: 1px solid var(--border); }
+  .container > div { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .container .hint { margin: 0; }
 </style>
 </head>
 <body>
 <header>
   <h1>Toit Webby</h1>
-  <span class="sub">flash &amp; run Toit on an ESP32 — in the browser, over USB</span>
+  <span class="sub">flash &amp; run Toit on an ESP32 — in the browser, over USB or Wi-Fi</span>
   <span id="status">loading…</span>
 </header>
 <main>
   <div class="side">
     <section>
-      <h2>1 · Device</h2>
+      <h2>1 · USB device</h2>
       <button id="connect" class="primary">Connect over USB</button>
       <p class="hint">Plug in the ESP32, click, and pick its serial port. The chip type is detected automatically.</p>
       <div id="devinfo" hidden></div>
     </section>
     <section>
-      <h2>2 · Flash Jaguar</h2>
+      <h2>2 · Flash Jaguar*</h2>
       <label for="envelope">Firmware envelope</label>
       <select id="envelope"></select>
       <label for="devname">Device name</label>
@@ -79,15 +99,38 @@
       <input id="ssid" placeholder="network name" autocomplete="off">
       <label for="pass">Wi-Fi password (optional)</label>
       <input id="pass" type="password" placeholder="password" autocomplete="off">
-      <button id="flash" disabled>Flash Jaguar firmware</button>
-      <p class="hint">Builds the firmware in your browser and writes it over USB. One-time per device. Code runs over USB regardless of Wi-Fi.</p>
+      <button id="flash" disabled>Flash Jaguar* firmware</button>
+      <p class="hint">Builds the firmware in your browser and writes it over USB. One-time per device.
+        Jaguar* is <a href="https://github.com/toitlang/jaguar">Jaguar</a> plus mDNS
+        (<i>name</i>.local), CORS for this page and captured program output, so with Wi-Fi
+        set you can then work over the network.</p>
+      <div id="netbanner" hidden></div>
+    </section>
+    <section>
+      <h2>3 · Wi-Fi device</h2>
+      <label for="wifi-host">Address of a Jaguar* device</label>
+      <div class="row">
+        <input id="wifi-host" placeholder="my-device.local" autocomplete="off">
+        <button id="wifi-connect">Connect</button>
+      </div>
+      <p class="hint">Or open <i>http://name.local:9000/</i> in the browser. Chrome asks once to allow access to your local network.</p>
+      <div id="wifi-info" hidden></div>
+    </section>
+    <section id="containers-section" hidden>
+      <h2>Containers <button id="containers-refresh" class="small" title="refresh">&#x21bb;</button></h2>
+      <div id="containers"></div>
     </section>
   </div>
   <div class="right">
     <div style="display:grid; grid-template-rows:auto 1fr; min-height:0;">
       <div class="toolbar">
         <button id="run" class="primary" disabled>Compile &amp; Run ▶</button>
-        <span class="label">compiles in-browser, pushes over USB</span>
+        <span class="label">to</span>
+        <select id="target" disabled></select>
+        <input id="cname" placeholder="container name" size="14" autocomplete="off">
+        <button id="install" disabled title="Install as a named container that starts on boot">Install</button>
+        <span class="spacer"></span>
+        <select id="examples" title="Examples"></select>
       </div>
       <div id="editor"></div>
     </div>

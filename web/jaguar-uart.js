@@ -74,41 +74,53 @@ export function ubjsonEncode(value) {
   return new Uint8Array(out);
 }
 
-// Decodes a subset of UBJSON (objects, strings, ints, bools) for identify.
+// Decodes UBJSON (as written by Toit's encoding.ubjson): null, bools, ints
+// (int64 as Number), floats, chars, strings, arrays and objects, including the
+// optimized `$type`/`#count` container forms.
 export function ubjsonDecode(bytes) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let p = 0;
-  const readLen = () => {
-    const t = bytes[p++];
-    if (t === 0x69) return bytes[p++];
-    if (t === 0x55) return bytes[p++];
-    if (t === 0x49) { const v = (bytes[p] << 8) | bytes[p + 1]; p += 2; return v; }
-    throw new Error("ubjson len type " + t);
-  };
-  const readKey = () => { const n = readLen(); const k = td.decode(bytes.slice(p, p + n)); p += n; return k; };
-  const valOfType = (t) => val(t);
-  const val = (forced) => {
-    const t = forced !== undefined ? forced : bytes[p++];
-    if (t === 0x7B) {                 // '{'
-      let type = undefined, count = undefined;
-      if (bytes[p] === 0x24) { p++; type = bytes[p++]; }   // '$' typed
-      if (bytes[p] === 0x23) { p++; count = readLen(); }   // '#' counted
-      const o = {};
-      if (count !== undefined) {
-        for (let i = 0; i < count; i++) { const k = readKey(); o[k] = valOfType(type); }
-      } else {
-        while (bytes[p] !== 0x7D) { const k = readKey(); o[k] = val(); }
-        p++;
-      }
-      return o;
+  const str = (n) => { const s = td.decode(bytes.subarray(p, p + n)); p += n; return s; };
+  const int = (t) => {
+    switch (t) {
+      case 0x69: p += 1; return view.getInt8(p - 1);                    // i
+      case 0x55: p += 1; return view.getUint8(p - 1);                   // U
+      case 0x49: p += 2; return view.getInt16(p - 2);                   // I
+      case 0x6C: p += 4; return view.getInt32(p - 4);                   // l
+      case 0x4C: p += 8; return Number(view.getBigInt64(p - 8));        // L
     }
-    if (t === 0x53) { const n = readLen(); const s = td.decode(bytes.slice(p, p + n)); p += n; return s; }
-    if (t === 0x54) return true;
-    if (t === 0x46) return false;
-    if (t === 0x6C) { const v = (bytes[p] << 24) | (bytes[p+1] << 16) | (bytes[p+2] << 8) | bytes[p+3]; p += 4; return v >>> 0; }
-    if (t === 0x69) return bytes[p++];
-    throw new Error("ubjson val type " + t);
+    throw new Error("ubjson: bad length type " + t);
   };
-  return val();
+  const val = (t) => {
+    switch (t) {
+      case 0x5A: return null;                                           // Z
+      case 0x54: return true;                                           // T
+      case 0x46: return false;                                          // F
+      case 0x64: p += 4; return view.getFloat32(p - 4);                 // d
+      case 0x44: p += 8; return view.getFloat64(p - 8);                 // D
+      case 0x43: return str(1);                                         // C
+      case 0x53: case 0x48: return str(int(bytes[p++]));                // S, H
+      case 0x5B: return container(false);                               // [
+      case 0x7B: return container(true);                                // {
+    }
+    return int(t);
+  };
+  const container = (isObject) => {
+    let type, count;
+    if (bytes[p] === 0x24) { p++; type = bytes[p++]; }                  // $
+    if (bytes[p] === 0x23) { p++; count = int(bytes[p++]); }            // #
+    const out = isObject ? {} : [];
+    const end = isObject ? 0x7D : 0x5D;
+    for (let i = 0; count === undefined ? bytes[p] !== end : i < count; i++) {
+      const key = isObject ? str(int(bytes[p++])) : null;
+      const v = val(type !== undefined ? type : bytes[p++]);
+      if (isObject) out[key] = v; else out.push(v);
+    }
+    if (count === undefined) p++;
+    // Byte arrays come as `[$U#n`.
+    return type === 0x55 && !isObject ? Uint8Array.from(out) : out;
+  };
+  return val(bytes[p++]);
 }
 
 // Demultiplexes a raw device byte stream into console text (onConsole) and a
